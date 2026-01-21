@@ -1,9 +1,9 @@
 // Securely access environment variables via Vite's import.meta.env
-// The vite-env.d.ts file provides the necessary type declarations.
+// We use optional chaining to prevent crashes if the env object is not yet populated.
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || '';
-const BREVO_KEY = import.meta.env.VITE_BREVO_API_KEY || '';
+const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_KEY || '';
+const BREVO_KEY = (import.meta as any).env?.VITE_BREVO_API_KEY || '';
 
 export const SupabaseService = {
   async fetchTable(table: string) {
