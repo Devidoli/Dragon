@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { User, AuthState, UserRole, UserStatus } from '../types.ts';
-import { EmailService, SupabaseService } from '../services.ts';
+import { User, AuthState, UserRole, UserStatus } from '../types';
+import { EmailService, SupabaseService } from '../services';
 import { Mail, Store, MapPin, ArrowRight, ShieldCheck, Flame, Loader2, Phone, RefreshCw } from 'lucide-react';
 
 interface SignupProps {
@@ -74,7 +73,7 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
-      <div className="w-full max-w-md">
+      <div className="w-full max-md">
         <div className="text-center mb-8 space-y-2">
           <div className="inline-flex p-4 vibrant-gradient rounded-2xl shadow-xl mb-2">
             <Flame className="w-8 h-8 text-white" />

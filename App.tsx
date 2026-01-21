@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus } from './types.ts';
-import { INITIAL_PRODUCTS } from './constants.ts';
-import { SupabaseService } from './services.ts';
-import Login from './pages/Login.tsx';
-import Signup from './pages/Signup.tsx';
-import Shop from './pages/Shop.tsx';
-import AdminDashboard from './pages/AdminDashboard.tsx';
-import CustomerDetails from './pages/CustomerDetails.tsx';
-import { LogOut, Mail, LayoutDashboard, Flame, Sun, Moon, Loader2, ShieldCheck } from 'lucide-react';
+import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus } from './types';
+import { INITIAL_PRODUCTS } from './constants';
+import { SupabaseService } from './services';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import Shop from './pages/Shop';
+import AdminDashboard from './pages/AdminDashboard';
+import CustomerDetails from './pages/CustomerDetails';
+import { LogOut, LayoutDashboard, Flame, Sun, Moon, Loader2, ShieldCheck } from 'lucide-react';
 
 const ADMIN_EMAILS = [
   'olidevid203@gmail.com',
@@ -30,7 +30,6 @@ const App: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [counterSales, setCounterSales] = useState<CounterSale[]>([]);
 
-  // Corrected basename detection for production vs sandbox
   const basename = window.location.hostname.includes('vercel.app') ? '/' : (
     window.location.pathname.length > 1 && window.location.pathname.includes('-') 
       ? window.location.pathname.split('/').slice(0, 2).join('/') 

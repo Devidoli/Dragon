@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { User, AuthState } from '../types.ts';
-import { EmailService } from '../services.ts';
+import { User, AuthState } from '../types';
+import { EmailService } from '../services';
 import { Mail, ArrowRight, ShieldCheck, Flame, Loader2, KeyRound, MonitorCheck, RefreshCw } from 'lucide-react';
 
 interface LoginProps {
@@ -124,7 +123,6 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
   return (
     <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6 font-sans">
       <div className="w-full max-w-lg relative">
-        {/* Animated Background Element */}
         <div className="absolute -top-24 -left-24 w-64 h-64 bg-red-600/20 rounded-full blur-[100px] animate-pulse"></div>
         <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-amber-600/20 rounded-full blur-[100px] animate-pulse delay-1000"></div>
 

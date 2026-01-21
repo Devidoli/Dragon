@@ -1,19 +1,14 @@
 // Securely access environment variables via Vite's import.meta.env
-// In production (Vercel), these are injected during the build process.
-// Ensure your Vercel project has VITE_SUPABASE_URL, VITE_SUPABASE_KEY, and VITE_BREVO_API_KEY set.
+// The vite-env.d.ts file provides the necessary type declarations.
 
-const getEnv = (key: string): string => {
-  return (import.meta as any).env?.[key] || '';
-};
-
-const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
-const SUPABASE_KEY = getEnv('VITE_SUPABASE_KEY');
-const BREVO_KEY = getEnv('VITE_BREVO_API_KEY');
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || '';
+const BREVO_KEY = import.meta.env.VITE_BREVO_API_KEY || '';
 
 export const SupabaseService = {
   async fetchTable(table: string) {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-      console.warn(`Supabase credentials missing for table: ${table}. Check your .env or Vercel settings.`);
+      console.warn(`Supabase credentials missing for table: ${table}. Check your Vercel settings.`);
       return [];
     }
     try {

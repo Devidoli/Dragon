@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { User, Product, Order, OrderItem } from '../types.ts';
-import { CATEGORIES } from '../constants.ts';
-import { ShoppingCart, Package, Search, Plus, Minus, X, AlertCircle, CheckCircle2, FileText, Flame, Filter, ChevronRight } from 'lucide-react';
-import Invoice from '../components/Invoice.tsx';
+import { User, Product, Order, OrderItem } from '../types';
+import { CATEGORIES } from '../constants';
+import { ShoppingCart, Package, Search, Plus, Minus, X, AlertCircle, CheckCircle2, FileText, Flame } from 'lucide-react';
+import Invoice from '../components/Invoice';
 
 interface ShopProps {
   user: User;
@@ -147,7 +147,6 @@ const Shop: React.FC<ShopProps> = ({ user, products, placeOrder, orders }) => {
       </div>
 
       <div className="space-y-24 mb-32">
-        {/* Added explicit type cast to resolve 'unknown' type error for items in Object.entries */}
         {(Object.entries(groupedProducts) as [string, Product[]][]).map(([category, items]) => (
           <div key={category} className="space-y-10 animate-in fade-in slide-in-from-bottom-8">
             <div className="flex items-center gap-6">

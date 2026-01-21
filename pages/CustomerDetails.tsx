@@ -1,9 +1,8 @@
-
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { User, Order } from '../types.ts';
+import { User, Order } from '../types';
 import { ChevronLeft, Package, Calendar, FileText, ShoppingCart, User as UserIcon, Mail, Flame } from 'lucide-react';
-import Invoice from '../components/Invoice.tsx';
+import Invoice from '../components/Invoice';
 
 interface CustomerDetailsProps {
   users: User[];

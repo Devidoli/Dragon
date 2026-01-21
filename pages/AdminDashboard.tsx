@@ -1,10 +1,9 @@
-
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { User, Product, Order, CounterSale } from '../types.ts';
-import { LIQUOR_VOLUMES, CATEGORIES } from '../constants.ts';
-import { Users, Package, TrendingUp, Clock, Plus, ArrowUpRight, Search, Flame, Mail, Image as ImageIcon, X, Trash2, ShoppingCart, History, Upload, Check, CheckCircle, Minus } from 'lucide-react';
-import { CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area, PieChart, Pie, XAxis, YAxis } from 'recharts';
+import { User, Product, Order, CounterSale } from '../types';
+import { LIQUOR_VOLUMES, CATEGORIES } from '../constants';
+import { Users, Package, TrendingUp, Plus, ArrowUpRight, Flame, Trash2, ShoppingCart, Upload } from 'lucide-react';
+import { CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from 'recharts';
 
 interface AdminDashboardProps {
   users: User[];
@@ -52,7 +51,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, products, orders
     return data;
   }, [orders, counterSales]);
 
-  // Modals Local States
   const [newProduct, setNewProduct] = useState({ name: '', category: 'Whisky', volume: 'Full (750ml)', price: 0, stock: 0, unit: 'Bottle', image: '' });
   const [saleProduct, setSaleProduct] = useState<Product | null>(null);
   const [salePrice, setSalePrice] = useState(0);
@@ -208,7 +206,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, products, orders
         </div>
       )}
 
-      {/* MODALS */}
       {showAddProductModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md" onClick={() => setShowAddProductModal(false)} />
