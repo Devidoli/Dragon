@@ -1,14 +1,18 @@
-// Securely access environment variables via Vite's import.meta.env
-// We use optional chaining to prevent crashes if the env object is not yet populated.
+// Standard Vite environment variable access.
+// Ensure these variables are prefixed with VITE_ in your Vercel Project Settings.
 
-const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_KEY || '';
-const BREVO_KEY = (import.meta as any).env?.VITE_BREVO_API_KEY || '';
+const getEnv = (key: string): string => {
+  return (import.meta as any).env?.[key] || '';
+};
+
+const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
+const SUPABASE_KEY = getEnv('VITE_SUPABASE_KEY');
+const BREVO_KEY = getEnv('VITE_BREVO_API_KEY');
 
 export const SupabaseService = {
   async fetchTable(table: string) {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-      console.warn(`Supabase credentials missing for table: ${table}. Check your Vercel settings.`);
+      console.warn(`Supabase credentials missing for table: ${table}. Check your Vercel environment variables.`);
       return [];
     }
     try {
@@ -63,7 +67,7 @@ export const SupabaseService = {
 export const EmailService = {
   async sendOTP(email: string, otp: string) {
     if (!BREVO_KEY) {
-      console.error('Brevo API key (VITE_BREVO_API_KEY) is missing. Email cannot be sent.');
+      console.error('Brevo API key (VITE_BREVO_API_KEY) is missing.');
       return false;
     }
     try {
@@ -93,15 +97,9 @@ export const EmailService = {
           `
         })
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Email API Error:', errorData);
-        return false;
-      }
-      return true;
+      return response.ok;
     } catch (e) {
-      console.error('Network error sending email:', e);
+      console.error('Email error:', e);
       return false;
     }
   }
