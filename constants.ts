@@ -1,5 +1,5 @@
 
-import { Product } from './types';
+import { Product } from './types.ts';
 
 export const INITIAL_PRODUCTS: Product[] = [
   { id: '1', name: 'Old Durbar Black Chimney', category: 'Whisky', volume: 'Full (750ml)', price: 3450, stock: 45, unit: 'Bottle', image: 'https://picsum.photos/seed/whisky1/400/400' },

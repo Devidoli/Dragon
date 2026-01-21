@@ -1,10 +1,9 @@
 
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-// Removed .ts extension for consistent module resolution
-import { User, Order } from '../types';
+import { User, Order } from '../types.ts';
 import { ChevronLeft, Package, Calendar, FileText, ShoppingCart, User as UserIcon, Mail, Flame } from 'lucide-react';
-import Invoice from '../components/Invoice';
+import Invoice from '../components/Invoice.tsx';
 
 interface CustomerDetailsProps {
   users: User[];
@@ -20,7 +19,7 @@ const CustomerDetails: React.FC<CustomerDetailsProps> = ({ users, orders }) => {
 
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
-  if (!customer) return <div>Merchant not found</div>;
+  if (!customer) return <div className="p-10 text-center font-black">Merchant not found</div>;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -45,7 +44,7 @@ const CustomerDetails: React.FC<CustomerDetailsProps> = ({ users, orders }) => {
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Primary Contact</p>
                 <div className="flex items-center gap-3">
                     <Mail className="w-5 h-5 text-red-500" />
-                    <p className="font-black text-white text-lg">+977 {customer.phone}</p>
+                    <p className="font-black text-white text-lg">{customer.phone}</p>
                 </div>
               </div>
               <div className="bg-slate-800/50 p-6 rounded-3xl border border-white/5">

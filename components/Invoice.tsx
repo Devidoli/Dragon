@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Order, User } from '../types';
+import { Order, User } from '../types.ts';
 import { Flame } from 'lucide-react';
 
 interface InvoiceProps {
