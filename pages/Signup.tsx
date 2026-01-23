@@ -29,15 +29,17 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
 
   const handleNext = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (users.find(u => u.email === formData.email.toLowerCase())) {
-      setError('This email is already registered.');
+    const cleanEmail = formData.email.trim().toLowerCase();
+    
+    if (users.find(u => u.email === cleanEmail)) {
+      setError('This merchant email is already registered.');
       return;
     }
     
     setIsSending(true);
     setError('');
     const code = Math.floor(1000 + Math.random() * 9000).toString();
-    const success = await EmailService.sendOTP(formData.email, code);
+    const success = await EmailService.sendOTP(cleanEmail, code);
     
     setIsSending(false);
     if (success) {
@@ -45,7 +47,7 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
       setStep('otp');
       setResendCooldown(30);
     } else {
-      setError('Failed to send verification code. Ensure your Brevo sender is verified.');
+      setError('Verification failed. Check your email or try again later.');
     }
   };
 
@@ -67,58 +69,63 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
       setAuth({ user: newUser, isAuthenticated: true });
       navigate('/');
     } else {
-      setError('Invalid code.');
+      setError('Security code mismatch.');
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
-      <div className="w-full max-md">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-950 font-sans">
+      <div className="w-full max-w-md">
         <div className="text-center mb-8 space-y-2">
-          <div className="inline-flex p-4 vibrant-gradient rounded-2xl shadow-xl mb-2">
-            <Flame className="w-8 h-8 text-white" />
+          <div className="inline-flex p-3 vibrant-gradient rounded-2xl shadow-lg mb-2">
+            <Flame className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-3xl font-black text-white tracking-tight">Merchant Application</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Merchant Application</h1>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Authorized Distribution Enrollment</p>
         </div>
 
-        <div className="glass p-8 rounded-[2rem] shadow-2xl border border-white/10 relative">
-          <div className="absolute top-0 right-0 w-1 h-full vibrant-gradient"></div>
+        <div className="glass p-8 rounded-[2rem] shadow-2xl border border-white/5 relative">
           {step === 'details' ? (
-            <form onSubmit={handleNext} className="space-y-5">
-              <input required value={formData.shopName} onChange={(e) => setFormData({ ...formData, shopName: e.target.value })} placeholder="Business Shop Name" className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 px-4 focus:ring-2 focus:ring-red-500 outline-none font-bold text-white" />
-              <input required type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="Business Gmail" className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 px-4 focus:ring-2 focus:ring-red-500 outline-none font-bold text-white" />
-              <input required type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="98XXXXXXXX" className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 px-4 focus:ring-2 focus:ring-red-500 outline-none font-bold text-white" />
-              <input required value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} placeholder="Physical Address" className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 px-4 focus:ring-2 focus:ring-red-500 outline-none font-bold text-white" />
-              {error && <p className="text-red-400 text-sm font-bold text-center bg-red-500/10 py-2 rounded-xl">{error}</p>}
-              <button type="submit" disabled={isSending} className="w-full vibrant-gradient text-white font-black py-4 rounded-xl shadow-xl flex items-center justify-center gap-2 text-lg">
-                {isSending ? <Loader2 className="w-6 h-6 animate-spin" /> : "Verify Identity"}
+            <form onSubmit={handleNext} className="space-y-4">
+              <div className="space-y-4">
+                <input required value={formData.shopName} onChange={(e) => setFormData({ ...formData, shopName: e.target.value })} placeholder="Business Name" className="w-full bg-slate-900/50 border border-slate-800 rounded-xl py-3 px-4 focus:ring-1 focus:ring-red-500 outline-none font-semibold text-white text-sm" />
+                <input required type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="Merchant Gmail" className="w-full bg-slate-900/50 border border-slate-800 rounded-xl py-3 px-4 focus:ring-1 focus:ring-red-500 outline-none font-semibold text-white text-sm" />
+                <input required type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="Phone Number (98...)" className="w-full bg-slate-900/50 border border-slate-800 rounded-xl py-3 px-4 focus:ring-1 focus:ring-red-500 outline-none font-semibold text-white text-sm" />
+                <input required value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} placeholder="Store Address" className="w-full bg-slate-900/50 border border-slate-800 rounded-xl py-3 px-4 focus:ring-1 focus:ring-red-500 outline-none font-semibold text-white text-sm" />
+              </div>
+              
+              {error && <p className="text-red-400 text-xs font-bold text-center bg-red-500/5 py-2.5 rounded-lg">{error}</p>}
+              
+              <button type="submit" disabled={isSending} className="w-full vibrant-gradient text-white font-bold py-3.5 rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm transition-all active:scale-[0.98]">
+                {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Verify Identity"}
               </button>
-              <div className="text-center pt-2">
-                <Link to="/login" className="text-slate-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest">Already have an account? Login</Link>
+              
+              <div className="text-center pt-4">
+                <Link to="/login" className="text-slate-500 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest">Back to Login Terminal</Link>
               </div>
             </form>
           ) : (
             <form onSubmit={handleSignup} className="space-y-6">
               <div className="text-center">
-                <ShieldCheck className="w-16 h-16 text-red-500 mx-auto mb-2" />
-                <h3 className="text-2xl font-black text-white">Enter Code</h3>
-                <p className="text-slate-400 text-sm">Sent to: {formData.email}</p>
+                <ShieldCheck className="w-12 h-12 text-red-500 mx-auto mb-2" />
+                <h3 className="text-xl font-bold text-white">Security Check</h3>
+                <p className="text-slate-400 text-[11px]">Verification code sent to email</p>
               </div>
-              <input required maxLength={4} value={formData.otp} onChange={(e) => setFormData({ ...formData, otp: e.target.value })} placeholder="0000" className="w-full bg-slate-800 border border-slate-700 rounded-xl py-4 px-4 text-center text-4xl font-black tracking-[0.5em] focus:ring-2 focus:ring-red-500 text-white" />
-              {error && <p className="text-red-400 text-sm font-bold text-center">{error}</p>}
-              <button type="submit" className="w-full vibrant-gradient text-white font-black py-4 rounded-xl shadow-xl text-xl">Submit Application</button>
+              <input required maxLength={4} value={formData.otp} onChange={(e) => setFormData({ ...formData, otp: e.target.value })} placeholder="0000" className="w-full bg-slate-900/60 border border-slate-800 rounded-xl py-4 text-center text-3xl font-bold tracking-[0.4em] focus:ring-1 focus:ring-red-500 text-white outline-none" />
+              {error && <p className="text-red-400 text-xs font-bold text-center">{error}</p>}
+              <button type="submit" className="w-full vibrant-gradient text-white font-bold py-3.5 rounded-xl shadow-lg text-sm active:scale-[0.98] transition-all">Enroll Merchant</button>
               
-              <div className="flex flex-col gap-2 pt-2 text-center">
+              <div className="flex flex-col gap-3 pt-4 text-center">
                 <button 
                   type="button" 
                   onClick={() => handleNext()} 
                   disabled={resendCooldown > 0 || isSending}
-                  className="flex items-center justify-center gap-2 text-slate-400 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest disabled:opacity-50"
+                  className="flex items-center justify-center gap-1.5 text-slate-500 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3 h-3 ${isSending ? 'animate-spin' : ''}`} />
-                  {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend code"}
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Request New Code"}
                 </button>
-                <button type="button" onClick={() => setStep('details')} className="text-slate-500 hover:text-white transition-colors text-[10px] font-black uppercase tracking-widest">Back to Details</button>
+                <button type="button" onClick={() => setStep('details')} className="text-slate-600 hover:text-white transition-colors text-[9px] font-bold uppercase tracking-widest">Edit Merchant Details</button>
               </div>
             </form>
           )}
