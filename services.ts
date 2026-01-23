@@ -1,28 +1,72 @@
-// Standard Vite environment variable access.
-const getEnv = (key: string): string => {
-  return (import.meta as any).env?.[key] || '';
+/**
+ * Standard Vite environment variables must be accessed statically 
+ * (e.g. import.meta.env.VITE_...) for the bundler to correctly 
+ * replace them during the build process.
+ */
+
+const getViteEnv = (key: string): string => {
+  // Static check for the primary required keys
+  switch (key) {
+    case 'VITE_SUPABASE_URL':
+      return (import.meta as any).env?.VITE_SUPABASE_URL || "";
+    case 'VITE_SUPABASE_KEY':
+      return (import.meta as any).env?.VITE_SUPABASE_KEY || "";
+    case 'VITE_BREVO_API_KEY':
+      return (import.meta as any).env?.VITE_BREVO_API_KEY || "";
+    default:
+      return "";
+  }
 };
 
-const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
-const SUPABASE_KEY = getEnv('VITE_SUPABASE_KEY');
-const BREVO_KEY = getEnv('VITE_BREVO_API_KEY');
+const getProcessEnv = (key: string): string => {
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      return (process.env[key] as string) || (process.env[key.replace('VITE_', '')] as string) || "";
+    }
+  } catch (e) {}
+  return "";
+};
 
-// Robust mapping to handle both camelCase and snake_case database schemas
+// Orchestrate variable detection
+const SUPABASE_URL = getViteEnv('VITE_SUPABASE_URL') || getProcessEnv('VITE_SUPABASE_URL');
+const SUPABASE_KEY = getViteEnv('VITE_SUPABASE_KEY') || getProcessEnv('VITE_SUPABASE_KEY');
+const BREVO_KEY = getViteEnv('VITE_BREVO_API_KEY') || getProcessEnv('VITE_BREVO_API_KEY');
+
+// Diagnostics to help identify configuration gaps
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.warn(
+    "DRAGON CONFIG WARNING: Missing Supabase credentials.\n" +
+    "1. Ensure variables in Vercel/Local are named VITE_SUPABASE_URL and VITE_SUPABASE_KEY.\n" +
+    "2. If using Vercel, redeploy after adding environment variables."
+  );
+}
+
+/**
+ * Normalizes camelCase application objects to snake_case database records.
+ * This is CRITICAL for Supabase compatibility to avoid 'Column does not exist' errors.
+ */
 const normalizeToDB = (data: any) => {
   const mapping: Record<string, string> = {
     'shopName': 'shop_name',
     'createdAt': 'created_at',
+    'customerId': 'customer_id',
+    'customerEmail': 'customer_email',
+    'productId': 'product_id',
+    'productName': 'product_name',
+    'paymentMethod': 'payment_method'
   };
   
-  const normalized: any = { ...data };
-  Object.keys(mapping).forEach(key => {
-    if (data[key] !== undefined) {
-      normalized[mapping[key]] = data[key];
-    }
+  const normalized: any = {};
+  Object.keys(data).forEach(key => {
+    const dbKey = mapping[key] || key;
+    normalized[dbKey] = data[key];
   });
   return normalized;
 };
 
+/**
+ * Maps snake_case database records back to camelCase application objects.
+ */
 const normalizeFromDB = (data: any) => {
   if (!data) return data;
   return {
@@ -39,10 +83,7 @@ const normalizeFromDB = (data: any) => {
 
 export const SupabaseService = {
   async fetchTable(table: string) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      console.error("SUPABASE ERROR: Environment variables missing. Check your Vercel/Local settings.");
-      return [];
-    }
+    if (!SUPABASE_URL || !SUPABASE_KEY) return [];
     try {
       const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
         headers: {
@@ -101,7 +142,6 @@ export const SupabaseService = {
       if (!response.ok) {
         const err = await response.text();
         console.error(`SUPABASE UPSERT ERROR [${table}]:`, response.status, err);
-        console.info("TIP: If status is 401/403, check your Supabase RLS policies for INSERT access.");
       }
     } catch (e) {
       console.error(`NETWORK ERROR during upsert to ${table}:`, e);
