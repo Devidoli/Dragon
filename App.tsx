@@ -38,10 +38,12 @@ const App: React.FC = () => {
 
   const refreshData = useCallback(async () => {
     try {
-      const p = await SupabaseService.fetchTable('products');
-      const u = await SupabaseService.fetchTable('users');
-      const o = await SupabaseService.fetchTable('orders');
-      const cs = await SupabaseService.fetchTable('counter_sales');
+      const [p, u, o, cs] = await Promise.all([
+        SupabaseService.fetchTable('products'),
+        SupabaseService.fetchTable('users'),
+        SupabaseService.fetchTable('orders'),
+        SupabaseService.fetchTable('counter_sales')
+      ]);
 
       const processedUsers: User[] = u.map((user: User) => {
         if (ADMIN_EMAILS.includes(user.email.toLowerCase())) {
@@ -50,19 +52,22 @@ const App: React.FC = () => {
         return user;
       });
 
-      setProducts(p.length ? p : INITIAL_PRODUCTS);
+      if (p.length) setProducts(p);
+      else if (products.length === 0) setProducts(INITIAL_PRODUCTS);
+
+      // Only overwrite if we actually got results or the table is empty
       setUsers(processedUsers);
       setOrders(o);
       setCounterSales(cs);
     } catch (err) {
-      console.error("Data refresh error:", err);
+      console.error("Critical error during data refresh:", err);
     }
-  }, []);
+  }, [products.length]);
 
   useEffect(() => {
     const init = async () => {
       await refreshData();
-      setTimeout(() => setLoading(false), 800);
+      setLoading(false);
     };
     init();
   }, [refreshData]);
@@ -81,8 +86,7 @@ const App: React.FC = () => {
   const updateProductStock = async (id: string, newStock: number) => {
     const updated = products.map(p => p.id === id ? { ...p, stock: newStock } : p);
     setProducts(updated);
-    const p = updated.find(x => x.id === id);
-    if (p) await SupabaseService.upsert('products', p);
+    await SupabaseService.update('products', id, { stock: newStock });
   };
 
   const addProduct = async (p: Product) => {
@@ -99,32 +103,37 @@ const App: React.FC = () => {
     setOrders(prev => [order, ...prev]);
     await SupabaseService.upsert('orders', order);
     
-    const updatedProducts = products.map(p => {
-      const item = order.items.find(i => i.productId === p.id);
-      return item ? { ...p, stock: Math.max(0, p.stock - item.quantity) } : p;
-    });
-    setProducts(updatedProducts);
     for (const item of order.items) {
-      const p = updatedProducts.find(x => x.id === item.productId);
-      if (p) await SupabaseService.upsert('products', p);
+      const prod = products.find(p => p.id === item.productId);
+      if (prod) {
+        const newStock = Math.max(0, prod.stock - item.quantity);
+        await SupabaseService.update('products', prod.id, { stock: newStock });
+      }
     }
+    await refreshData();
   };
 
   const addCounterSale = async (sale: CounterSale) => {
     setCounterSales(prev => [sale, ...prev]);
     await SupabaseService.upsert('counter_sales', sale);
     
-    const updated = products.map(p => p.id === sale.productId ? { ...p, stock: Math.max(0, p.stock - sale.quantity) } : p);
-    setProducts(updated);
-    const prod = updated.find(x => x.id === sale.productId);
-    if (prod) await SupabaseService.upsert('products', prod);
+    const prod = products.find(p => p.id === sale.productId);
+    if (prod) {
+      const newStock = Math.max(0, prod.stock - sale.quantity);
+      await SupabaseService.update('products', prod.id, { stock: newStock });
+    }
+    await refreshData();
   };
 
   const approveUser = async (userId: string) => {
-    const updated = users.map(u => u.id === userId ? { ...u, status: 'approved' as UserStatus } : u);
-    setUsers(updated as User[]);
-    // Use PATCH to update the status specifically
+    // Optimistic UI update
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'approved' as UserStatus } : u));
+    
+    // Remote update
     await SupabaseService.update('users', userId, { status: 'approved' });
+    
+    // Final sync to confirm
+    await refreshData();
   };
 
   if (loading) return (

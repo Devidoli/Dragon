@@ -7,17 +7,18 @@ const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
 const SUPABASE_KEY = getEnv('VITE_SUPABASE_KEY');
 const BREVO_KEY = getEnv('VITE_BREVO_API_KEY');
 
-// Robust mapping for DB columns to ensure no data loss
+// Robust mapping to handle both camelCase and snake_case database schemas
 const normalizeToDB = (data: any) => {
   const mapping: Record<string, string> = {
     'shopName': 'shop_name',
     'createdAt': 'created_at',
   };
   
-  const normalized: any = {};
-  Object.keys(data).forEach(key => {
-    const dbKey = mapping[key] || key;
-    normalized[dbKey] = data[key];
+  const normalized: any = { ...data };
+  Object.keys(mapping).forEach(key => {
+    if (data[key] !== undefined) {
+      normalized[mapping[key]] = data[key];
+    }
   });
   return normalized;
 };
@@ -38,9 +39,11 @@ const normalizeFromDB = (data: any) => {
 
 export const SupabaseService = {
   async fetchTable(table: string) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) return [];
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      console.error("SUPABASE ERROR: Environment variables missing. Check your Vercel/Local settings.");
+      return [];
+    }
     try {
-      // Adding no-cache to ensure we get the latest data from the server
       const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
         headers: {
           'apikey': SUPABASE_KEY,
@@ -48,11 +51,17 @@ export const SupabaseService = {
           'Cache-Control': 'no-cache'
         }
       });
-      if (!response.ok) return [];
+      
+      if (!response.ok) {
+        const err = await response.text();
+        console.error(`SUPABASE FETCH ERROR [${table}]:`, response.status, err);
+        return [];
+      }
+      
       const data = await response.json();
       return Array.isArray(data) ? data.map(normalizeFromDB) : [];
     } catch (e) {
-      console.error(`Fetch error:`, e);
+      console.error(`NETWORK ERROR fetching ${table}:`, e);
       return [];
     }
   },
@@ -66,6 +75,7 @@ export const SupabaseService = {
           'Authorization': `Bearer ${SUPABASE_KEY}`
         }
       });
+      if (!response.ok) return null;
       const data = await response.json();
       return data && data[0] ? normalizeFromDB(data[0]) : null;
     } catch (e) {
@@ -77,22 +87,24 @@ export const SupabaseService = {
     if (!SUPABASE_URL || !SUPABASE_KEY) return;
     try {
       const dbData = normalizeToDB(data);
-      // Crucial: on_conflict=id tells Supabase how to handle existing records
       const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=id`, {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`,
           'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates, return=minimal'
+          'Prefer': 'resolution=merge-duplicates, return=representation'
         },
         body: JSON.stringify(dbData)
       });
+      
       if (!response.ok) {
-        console.error(`DB Upsert Error:`, await response.text());
+        const err = await response.text();
+        console.error(`SUPABASE UPSERT ERROR [${table}]:`, response.status, err);
+        console.info("TIP: If status is 401/403, check your Supabase RLS policies for INSERT access.");
       }
     } catch (e) {
-      console.error(`Network error:`, e);
+      console.error(`NETWORK ERROR during upsert to ${table}:`, e);
     }
   },
 
@@ -100,16 +112,24 @@ export const SupabaseService = {
     if (!SUPABASE_URL || !SUPABASE_KEY) return;
     try {
       const dbData = normalizeToDB(data);
-      await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
         method: 'PATCH',
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
         },
         body: JSON.stringify(dbData)
       });
-    } catch (e) {}
+      
+      if (!response.ok) {
+        const err = await response.text();
+        console.error(`SUPABASE UPDATE ERROR [${table}]:`, response.status, err);
+      }
+    } catch (e) {
+      console.error(`NETWORK ERROR during update to ${table}:`, e);
+    }
   },
 
   async delete(table: string, id: string) {
@@ -141,14 +161,7 @@ export const EmailService = {
           sender: { name: 'Dragon Suppliers', email: 'olidevid203@gmail.com' },
           to: [{ email: email }],
           subject: 'Dragon Suppliers: Verification Code',
-          htmlContent: `
-            <div style="font-family: sans-serif; padding: 40px; background-color: #0f172a; color: #ffffff; max-width: 500px; margin: 0 auto; border-radius: 20px;">
-              <h1 style="color: #ef4444; text-align: center; font-size: 24px;">DRAGON SUPPLIERS</h1>
-              <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; text-align: center; margin: 30px 0;">
-                <span style="font-size: 40px; font-weight: 800; color: #ffffff; letter-spacing: 10px;">${otp}</span>
-              </div>
-            </div>
-          `
+          htmlContent: `<div style="padding:40px;background:#0f172a;color:#fff;border-radius:20px;text-align:center;"><h1 style="color:#ef4444;">DRAGON</h1><div style="font-size:40px;margin:20px 0;letter-spacing:10px;font-weight:bold;">${otp}</div></div>`
         })
       });
       return response.ok;
