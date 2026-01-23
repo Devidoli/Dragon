@@ -1,11 +1,23 @@
 /**
  * Dragon Suppliers Service Layer - Commercial Production Version
  * 
- * Types are now handled via vite-env.d.ts manual definitions.
+ * Safety check added for import.meta to prevent crashes in non-Vite environments.
  */
 
-// Use the typed import.meta.env directly now that vite-env.d.ts is fixed
-const env = import.meta.env;
+// Deeply defensive access to prevent "Cannot read properties of undefined"
+const getEnv = () => {
+  try {
+    // Check if import.meta exists and has an env property
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      return (import.meta as any).env;
+    }
+  } catch (e) {
+    // Fallback if import.meta is not supported in the current context
+  }
+  return {};
+};
+
+const env = getEnv();
 
 const S_URL = env.VITE_SUPABASE_URL;
 const S_KEY = env.VITE_SUPABASE_KEY;
@@ -20,7 +32,7 @@ export const SupabaseConfig = {
 if (SupabaseConfig.isConfigured) {
   console.log("DRAGON CONFIG: Active. Database connection established.");
 } else {
-  console.warn("DRAGON CONFIG: Demo Mode. Missing environment variables.");
+  console.warn("DRAGON CONFIG: Demo Mode. Missing environment variables or non-Vite environment detected.");
 }
 
 const normalizeToDB = (data: any) => {
