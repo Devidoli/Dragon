@@ -5,19 +5,8 @@
  */
 
 // Deeply defensive access to prevent "Cannot read properties of undefined"
-const getEnv = () => {
-  try {
-    // Check if import.meta exists and has an env property
-    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-      return (import.meta as any).env;
-    }
-  } catch (e) {
-    // Fallback if import.meta is not supported in the current context
-  }
-  return {};
-};
-
-const env = getEnv();
+// We ensure we always have an object to read from, even if it's empty.
+const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
 
 const S_URL = env.VITE_SUPABASE_URL;
 const S_KEY = env.VITE_SUPABASE_KEY;
