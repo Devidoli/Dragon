@@ -10,13 +10,6 @@ interface SignupProps {
   users: User[];
 }
 
-const ADMIN_EMAILS = [
-  'olidevid203@gmail.com',
-  'olidevid204@gmail.com',
-  'olielina3@gmail.com',
-  'pokharrajoli12@gmail.com'
-];
-
 const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
   const [formData, setFormData] = useState({ email: '', phone: '', shopName: '', address: '', otp: '' });
   const [generatedOtp, setGeneratedOtp] = useState('');

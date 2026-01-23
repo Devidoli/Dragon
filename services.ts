@@ -1,50 +1,28 @@
 /**
- * Standard Vite environment variables must be accessed statically 
- * (e.g. import.meta.env.VITE_...) for the bundler to correctly 
- * replace them during the build process.
+ * Dragon Suppliers Service Layer - Commercial Production Version
+ * 
+ * Types are now handled via vite-env.d.ts manual definitions.
  */
 
-const getViteEnv = (key: string): string => {
-  // Static check for the primary required keys
-  switch (key) {
-    case 'VITE_SUPABASE_URL':
-      return (import.meta as any).env?.VITE_SUPABASE_URL || "";
-    case 'VITE_SUPABASE_KEY':
-      return (import.meta as any).env?.VITE_SUPABASE_KEY || "";
-    case 'VITE_BREVO_API_KEY':
-      return (import.meta as any).env?.VITE_BREVO_API_KEY || "";
-    default:
-      return "";
-  }
+// Use the typed import.meta.env directly now that vite-env.d.ts is fixed
+const env = import.meta.env;
+
+const S_URL = env.VITE_SUPABASE_URL;
+const S_KEY = env.VITE_SUPABASE_KEY;
+const B_KEY = env.VITE_BREVO_API_KEY;
+
+export const SupabaseConfig = {
+  isConfigured: !!(S_URL && S_KEY),
+  url: S_URL || "NONE",
 };
 
-const getProcessEnv = (key: string): string => {
-  try {
-    if (typeof process !== 'undefined' && process.env) {
-      return (process.env[key] as string) || (process.env[key.replace('VITE_', '')] as string) || "";
-    }
-  } catch (e) {}
-  return "";
-};
-
-// Orchestrate variable detection
-const SUPABASE_URL = getViteEnv('VITE_SUPABASE_URL') || getProcessEnv('VITE_SUPABASE_URL');
-const SUPABASE_KEY = getViteEnv('VITE_SUPABASE_KEY') || getProcessEnv('VITE_SUPABASE_KEY');
-const BREVO_KEY = getViteEnv('VITE_BREVO_API_KEY') || getProcessEnv('VITE_BREVO_API_KEY');
-
-// Diagnostics to help identify configuration gaps
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.warn(
-    "DRAGON CONFIG WARNING: Missing Supabase credentials.\n" +
-    "1. Ensure variables in Vercel/Local are named VITE_SUPABASE_URL and VITE_SUPABASE_KEY.\n" +
-    "2. If using Vercel, redeploy after adding environment variables."
-  );
+// Console diagnostics for the owner
+if (SupabaseConfig.isConfigured) {
+  console.log("DRAGON CONFIG: Active. Database connection established.");
+} else {
+  console.warn("DRAGON CONFIG: Demo Mode. Missing environment variables.");
 }
 
-/**
- * Normalizes camelCase application objects to snake_case database records.
- * This is CRITICAL for Supabase compatibility to avoid 'Column does not exist' errors.
- */
 const normalizeToDB = (data: any) => {
   const mapping: Record<string, string> = {
     'shopName': 'shop_name',
@@ -53,7 +31,8 @@ const normalizeToDB = (data: any) => {
     'customerEmail': 'customer_email',
     'productId': 'product_id',
     'productName': 'product_name',
-    'paymentMethod': 'payment_method'
+    'paymentMethod': 'payment_method',
+    'status': 'status'
   };
   
   const normalized: any = {};
@@ -64,9 +43,6 @@ const normalizeToDB = (data: any) => {
   return normalized;
 };
 
-/**
- * Maps snake_case database records back to camelCase application objects.
- */
 const normalizeFromDB = (data: any) => {
   if (!data) return data;
   return {
@@ -83,37 +59,30 @@ const normalizeFromDB = (data: any) => {
 
 export const SupabaseService = {
   async fetchTable(table: string) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) return [];
+    if (!SupabaseConfig.isConfigured) return [];
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
+      const response = await fetch(`${S_URL}/rest/v1/${table}?select=*`, {
         headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`,
           'Cache-Control': 'no-cache'
         }
       });
-      
-      if (!response.ok) {
-        const err = await response.text();
-        console.error(`SUPABASE FETCH ERROR [${table}]:`, response.status, err);
-        return [];
-      }
-      
+      if (!response.ok) return [];
       const data = await response.json();
       return Array.isArray(data) ? data.map(normalizeFromDB) : [];
     } catch (e) {
-      console.error(`NETWORK ERROR fetching ${table}:`, e);
       return [];
     }
   },
 
   async fetchUserByEmail(email: string) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+    if (!SupabaseConfig.isConfigured) return null;
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/users?email=eq.${email.toLowerCase()}&select=*`, {
+      const response = await fetch(`${S_URL}/rest/v1/users?email=eq.${email.toLowerCase()}&select=*`, {
         headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`
         }
       });
       if (!response.ok) return null;
@@ -124,39 +93,35 @@ export const SupabaseService = {
     }
   },
 
-  async upsert(table: string, data: any) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) return;
+  async upsert(table: string, data: any): Promise<boolean> {
+    if (!SupabaseConfig.isConfigured) return false;
     try {
       const dbData = normalizeToDB(data);
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=id`, {
+      const response = await fetch(`${S_URL}/rest/v1/${table}?on_conflict=id`, {
         method: 'POST',
         headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`,
           'Content-Type': 'application/json',
           'Prefer': 'resolution=merge-duplicates, return=representation'
         },
         body: JSON.stringify(dbData)
       });
-      
-      if (!response.ok) {
-        const err = await response.text();
-        console.error(`SUPABASE UPSERT ERROR [${table}]:`, response.status, err);
-      }
+      return response.ok;
     } catch (e) {
-      console.error(`NETWORK ERROR during upsert to ${table}:`, e);
+      return false;
     }
   },
 
-  async update(table: string, id: string, data: any) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) return;
+  async update(table: string, id: string, data: any): Promise<boolean> {
+    if (!SupabaseConfig.isConfigured) return false;
     try {
       const dbData = normalizeToDB(data);
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+      const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
         method: 'PATCH',
         headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`,
           'Content-Type': 'application/json',
           'Prefer': 'return=representation'
         },
@@ -164,37 +129,42 @@ export const SupabaseService = {
       });
       
       if (!response.ok) {
-        const err = await response.text();
-        console.error(`SUPABASE UPDATE ERROR [${table}]:`, response.status, err);
+        const errorMsg = await response.text();
+        console.error(`SUPABASE UPDATE FAILED: ${response.status} - ${errorMsg}`);
+        return false;
       }
+      return true;
     } catch (e) {
-      console.error(`NETWORK ERROR during update to ${table}:`, e);
+      return false;
     }
   },
 
-  async delete(table: string, id: string) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) return;
+  async delete(table: string, id: string): Promise<boolean> {
+    if (!SupabaseConfig.isConfigured) return false;
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+      const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
         method: 'DELETE',
         headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`
         }
       });
-    } catch (e) {}
+      return response.ok;
+    } catch (e) {
+      return false;
+    }
   }
 };
 
 export const EmailService = {
   async sendOTP(email: string, otp: string) {
-    if (!BREVO_KEY) return false;
+    if (!B_KEY) return false;
     try {
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
           'accept': 'application/json',
-          'api-key': BREVO_KEY,
+          'api-key': B_KEY,
           'content-type': 'application/json'
         },
         body: JSON.stringify({

@@ -1,21 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus } from './types';
-import { INITIAL_PRODUCTS } from './constants';
-import { SupabaseService } from './services';
+import { INITIAL_PRODUCTS, ADMIN_EMAILS } from './constants';
+import { SupabaseService, SupabaseConfig } from './services';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Shop from './pages/Shop';
 import AdminDashboard from './pages/AdminDashboard';
 import CustomerDetails from './pages/CustomerDetails';
-import { LogOut, LayoutDashboard, Flame, Sun, Moon, Loader2, ShieldCheck } from 'lucide-react';
-
-const ADMIN_EMAILS = [
-  'olidevid203@gmail.com',
-  'olidevid204@gmail.com',
-  'olielina3@gmail.com',
-  'pokharrajoli12@gmail.com'
-];
+import { LogOut, LayoutDashboard, Flame, Sun, Moon, Loader2, ShieldCheck, DatabaseZap } from 'lucide-react';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -55,7 +48,6 @@ const App: React.FC = () => {
       if (p.length) setProducts(p);
       else if (products.length === 0) setProducts(INITIAL_PRODUCTS);
 
-      // Only overwrite if we actually got results or the table is empty
       setUsers(processedUsers);
       setOrders(o);
       setCounterSales(cs);
@@ -126,14 +118,19 @@ const App: React.FC = () => {
   };
 
   const approveUser = async (userId: string) => {
-    // Optimistic UI update
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'approved' as UserStatus } : u));
-    
-    // Remote update
-    await SupabaseService.update('users', userId, { status: 'approved' });
-    
-    // Final sync to confirm
-    await refreshData();
+    const success = await SupabaseService.update('users', userId, { status: 'approved' });
+    if (success) {
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'approved' as UserStatus } : u));
+      await refreshData();
+      return true;
+    } else {
+      if (!SupabaseConfig.isConfigured) {
+        // Mock local state update if DB is disconnected
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'approved' as UserStatus } : u));
+        return true;
+      }
+      return false;
+    }
   };
 
   if (loading) return (
@@ -157,6 +154,13 @@ const App: React.FC = () => {
   return (
     <Router basename={basename}>
       <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900'}`}>
+        {!SupabaseConfig.isConfigured && (
+          <div className="bg-red-600/10 border-b border-red-500/20 py-2 px-6 flex items-center justify-center gap-3">
+            <DatabaseZap className="w-4 h-4 text-red-500" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-red-500">Demo Mode: Database Credentials Missing. Data persists locally only.</span>
+          </div>
+        )}
+
         {auth.isAuthenticated && (
           <nav className="sticky top-0 z-50 px-6 py-4 flex items-center justify-between border-b border-white/5 glass shadow-2xl">
             <Link to="/" className="flex items-center gap-3 group">

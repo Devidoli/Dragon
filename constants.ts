@@ -1,5 +1,12 @@
 import { Product } from './types';
 
+export const ADMIN_EMAILS = [
+  'olidevid203@gmail.com',
+  'olidevid204@gmail.com',
+  'olielina3@gmail.com',
+  'pokharrajoli12@gmail.com'
+];
+
 export const INITIAL_PRODUCTS: Product[] = [
   { id: '1', name: 'Old Durbar Black Chimney', category: 'Whisky', volume: 'Full (750ml)', price: 3450, stock: 45, unit: 'Bottle', image: 'https://picsum.photos/seed/whisky1/400/400' },
   { id: '2', name: 'Ruslan Vodka', category: 'Vodka', volume: 'Full (750ml)', price: 1850, stock: 120, unit: 'Bottle', image: 'https://picsum.photos/seed/vodka1/400/400' },

@@ -2,19 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, AuthState } from '../types';
 import { EmailService, SupabaseService } from '../services';
+import { ADMIN_EMAILS } from '../constants';
 import { Mail, ArrowRight, Flame, Loader2, MonitorCheck, RefreshCw, AlertCircle } from 'lucide-react';
 
 interface LoginProps {
   setAuth: React.Dispatch<React.SetStateAction<AuthState>>;
   users: User[];
 }
-
-const ADMIN_EMAILS = [
-  'olidevid203@gmail.com',
-  'olidevid204@gmail.com',
-  'olielina3@gmail.com',
-  'pokharrajoli12@gmail.com'
-];
 
 const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
   const [email, setEmail] = useState(() => localStorage.getItem('dragon_last_email') || '');
@@ -31,13 +25,11 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
     const cleanEmail = (directEmail || email).trim().toLowerCase();
     if (!cleanEmail) return;
 
-    // Check trust status
     const isTrusted = localStorage.getItem(`dragon_trusted_device_${cleanEmail}`) === 'true';
     
     if (isTrusted) {
       setStep('trusting');
       
-      // Fetch user profile specifically for faster login and verification
       const userProfile = await SupabaseService.fetchUserByEmail(cleanEmail);
       const isAdmin = ADMIN_EMAILS.includes(cleanEmail);
 
@@ -64,13 +56,11 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
         }
       }
       
-      // If we got here, trust failed or user not found
       setStep('email');
       if (!directEmail) setError('Account not found. Please check your email.');
       return;
     }
 
-    // Normal flow
     setIsSending(true);
     setError('');
     const code = Math.floor(1000 + Math.random() * 9000).toString();
@@ -87,7 +77,6 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
     }
   }, [email, setAuth, navigate]);
 
-  // Immediate trust check on mount
   useEffect(() => {
     const lastEmail = localStorage.getItem('dragon_last_email');
     if (lastEmail) {
