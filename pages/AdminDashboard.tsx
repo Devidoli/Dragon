@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { User, Product, Order, CounterSale } from '../types';
 import { LIQUOR_VOLUMES, CATEGORIES } from '../constants';
-import { Users, Package, TrendingUp, Plus, ArrowUpRight, Flame, Trash2, ShoppingCart, Upload } from 'lucide-react';
+import { Users, Package, TrendingUp, Plus, ArrowUpRight, Flame, Trash2, ShoppingCart, Upload, ShieldCheck, Clock, CheckCircle } from 'lucide-react';
 import { CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from 'recharts';
 
 interface AdminDashboardProps {
@@ -19,13 +19,13 @@ interface AdminDashboardProps {
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, products, orders, counterSales, approveUser, addProduct, deleteProduct, updateStock, addCounterSale }) => {
   const [activeTab, setActiveTab] = useState<'stats' | 'users' | 'inventory' | 'counter'>('stats');
-  const [searchTerm, setSearchTerm] = useState('');
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [showCounterSaleModal, setShowCounterSaleModal] = useState(false);
-  const [selectedHistoryDate, setSelectedHistoryDate] = useState<string | null>(null);
 
-  const pendingUsers = users.filter(u => u.status === 'pending' && u.role !== 'admin');
-  const allCustomers = users.filter(u => u.role === 'customer');
+  // Filter users into specific categories
+  const pendingUsers = useMemo(() => users.filter(u => u.status === 'pending' && u.role === 'customer'), [users]);
+  const approvedUsers = useMemo(() => users.filter(u => u.status === 'approved' && u.role === 'customer'), [users]);
+  
   const totalSales = orders.reduce((s, o) => s + o.total, 0) + counterSales.reduce((s, c) => s + c.total, 0);
 
   const todayStr = new Date().toDateString();
@@ -101,7 +101,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, products, orders
           <h1 className="text-5xl font-black dark:text-white flex items-center gap-4 text-slate-900 tracking-tighter">
             <Flame className="text-red-600 w-12 h-12" /> Control Center
           </h1>
-          <p className="text-slate-500 font-black uppercase tracking-[0.2em] text-xs mt-2 italic">Official Dashboard</p>
+          <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-xs mt-2">Official Dashboard</p>
         </div>
         <div className="flex bg-white dark:bg-slate-800/50 backdrop-blur p-2 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-x-auto">
           {[
@@ -149,7 +149,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, products, orders
                 <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest"><th className="px-10 py-6">Time</th><th className="px-10 py-6">Item</th><th className="px-10 py-6 text-right">Total</th></tr>
               </thead>
               <tbody className="divide-y dark:divide-white/5 divide-slate-100">
-                {(groupedSales[selectedHistoryDate || todayStr] || []).map(s => (
+                {(groupedSales[todayStr] || []).map(s => (
                   <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-white/5"><td className="px-10 py-8 font-black text-slate-500">{new Date(s.createdAt).toLocaleTimeString()}</td><td className="px-10 py-8 font-black dark:text-white">{s.productName}</td><td className="px-10 py-8 font-black text-red-500 text-right">Rs. {s.total.toLocaleString()}</td></tr>
                 ))}
               </tbody>
@@ -185,27 +185,84 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, products, orders
       )}
 
       {activeTab === 'users' && (
-        <div className="space-y-8 animate-in fade-in">
-          <h2 className="text-3xl font-black dark:text-white flex items-center gap-4">Merchant Database</h2>
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl overflow-hidden">
-             <table className="w-full text-left">
+        <div className="space-y-16 animate-in fade-in">
+          {/* Section 1: Pending Requests */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <Clock className="w-8 h-8 text-orange-500" />
+              <div>
+                <h2 className="text-3xl font-black dark:text-white uppercase tracking-tight">Pending Applications</h2>
+                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Awaiting Distribution Rights</p>
+              </div>
+            </div>
+            
+            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl overflow-hidden border border-orange-500/10">
+              <table className="w-full text-left">
                 <thead className="bg-slate-50 dark:bg-slate-900">
-                  <tr className="text-slate-400 text-[10px] font-black uppercase"><th className="px-10 py-6">Shop</th><th className="px-10 py-6">Status</th><th className="px-10 py-6 text-right">Audit</th></tr>
+                  <tr className="text-slate-400 text-[10px] font-black uppercase"><th className="px-10 py-6">Business Name</th><th className="px-10 py-6">Email Address</th><th className="px-10 py-6 text-right">Actions</th></tr>
                 </thead>
                 <tbody className="divide-y dark:divide-white/5">
-                  {allCustomers.map(c => (
-                    <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-all">
+                  {pendingUsers.map(c => (
+                    <tr key={c.id} className="hover:bg-orange-500/5 transition-all">
                       <td className="px-10 py-8 font-black dark:text-white">{c.shopName}</td>
-                      <td className="px-10 py-8 uppercase text-[10px] font-black"><span className={c.status === 'approved' ? 'text-green-500' : 'text-red-500'}>{c.status}</span></td>
-                      <td className="px-10 py-8 text-right"><Link to={`/admin/customer/${c.id}`} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg inline-block"><ArrowUpRight className="w-4 h-4 text-red-500" /></Link></td>
+                      <td className="px-10 py-8 font-bold text-slate-500 text-xs">{c.email}</td>
+                      <td className="px-10 py-8 text-right flex items-center justify-end gap-3">
+                        <button 
+                          onClick={() => approveUser(c.id)}
+                          className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg active:scale-95"
+                        >
+                          Approve Merchant
+                        </button>
+                        <Link to={`/admin/customer/${c.id}`} className="p-3 bg-slate-100 dark:bg-slate-700 rounded-xl text-slate-500 hover:text-white transition-all"><ArrowUpRight className="w-4 h-4" /></Link>
+                      </td>
                     </tr>
                   ))}
+                  {pendingUsers.length === 0 && (
+                    <tr><td colSpan={3} className="px-10 py-12 text-center text-slate-500 font-bold uppercase text-[10px] tracking-widest">No pending applications at this time</td></tr>
+                  )}
                 </tbody>
-             </table>
+              </table>
+            </div>
+          </div>
+
+          {/* Section 2: Approved Merchants */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <CheckCircle className="w-8 h-8 text-emerald-500" />
+              <div>
+                <h2 className="text-3xl font-black dark:text-white uppercase tracking-tight">Verified Distribution Network</h2>
+                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Authorized Merchants</p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl overflow-hidden border border-emerald-500/10">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 dark:bg-slate-900">
+                  <tr className="text-slate-400 text-[10px] font-black uppercase"><th className="px-10 py-6">Business Name</th><th className="px-10 py-6">Auth Status</th><th className="px-10 py-6 text-right">Operations</th></tr>
+                </thead>
+                <tbody className="divide-y dark:divide-white/5">
+                  {approvedUsers.map(c => (
+                    <tr key={c.id} className="hover:bg-emerald-500/5 transition-all">
+                      <td className="px-10 py-8 font-black dark:text-white">{c.shopName}</td>
+                      <td className="px-10 py-8">
+                        <span className="inline-flex items-center gap-2 text-emerald-500 text-[10px] font-black uppercase tracking-widest bg-emerald-500/10 px-4 py-2 rounded-full">
+                          <ShieldCheck className="w-3 h-3" /> VERIFIED
+                        </span>
+                      </td>
+                      <td className="px-10 py-8 text-right"><Link to={`/admin/customer/${c.id}`} className="p-3 bg-slate-100 dark:bg-slate-700 rounded-xl inline-block hover:bg-red-500 hover:text-white transition-all"><ArrowUpRight className="w-4 h-4" /></Link></td>
+                    </tr>
+                  ))}
+                  {approvedUsers.length === 0 && (
+                    <tr><td colSpan={3} className="px-10 py-12 text-center text-slate-500 font-bold uppercase text-[10px] tracking-widest">Zero verified merchants found</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
+      {/* Modals remain same, ensuring text is normal (no italics) */}
       {showAddProductModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md" onClick={() => setShowAddProductModal(false)} />
@@ -219,7 +276,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, products, orders
                  <Upload className="w-12 h-12 text-slate-500" />
                )}
                <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-               <p className="mt-2 text-xs font-black uppercase text-slate-400">Upload Bottle Label</p>
+               <p className="mt-2 text-xs font-bold uppercase text-slate-400">Upload Bottle Label</p>
             </div>
 
             <div className="grid grid-cols-2 gap-6">

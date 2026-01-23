@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, AuthState } from '../types';
 import { EmailService } from '../services';
-import { Mail, ArrowRight, Flame, Loader2, KeyRound, MonitorCheck, RefreshCw, AlertCircle } from 'lucide-react';
+import { Mail, ArrowRight, Flame, Loader2, MonitorCheck, RefreshCw, AlertCircle } from 'lucide-react';
 
 interface LoginProps {
   setAuth: React.Dispatch<React.SetStateAction<AuthState>>;
@@ -17,7 +17,7 @@ const ADMIN_EMAILS = [
 ];
 
 const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => localStorage.getItem('dragon_last_email') || '');
   const [otp, setOtp] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState('');
   const [step, setStep] = useState<'email' | 'otp' | 'trusting'>('email');
@@ -38,6 +38,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
     e?.preventDefault();
     const cleanEmail = email.trim().toLowerCase();
     
+    // Check if user exists
     let user = users.find(u => u.email === cleanEmail);
     const isAdmin = ADMIN_EMAILS.includes(cleanEmail);
 
@@ -46,9 +47,16 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
       return;
     }
 
+    // Save last email for convenience
+    localStorage.setItem('dragon_last_email', cleanEmail);
+
+    // Device Recognition Logic
     const isTrusted = localStorage.getItem(`dragon_trusted_device_${cleanEmail}`) === 'true';
+    
     if (isTrusted && step === 'email') {
       setStep('trusting');
+      
+      // Artificial delay for UX feel, but faster than before
       setTimeout(() => {
         if (isAdmin) {
           user = user ? { ...user, role: 'admin', status: 'approved' } : {
@@ -68,12 +76,13 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
           navigate('/');
         } else {
           setStep('email');
-          setError('Trust token expired. Please re-verify.');
+          setError('Session could not be restored. Please try again.');
         }
-      }, 800);
+      }, 600);
       return;
     }
 
+    // Normal OTP flow
     setIsSending(true);
     setError('');
     const code = Math.floor(1000 + Math.random() * 9000).toString();
@@ -85,7 +94,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
       setStep('otp');
       setResendCooldown(30);
     } else {
-      setError('Verification service unavailable. Please check your internet or contact support.');
+      setError('Verification service unavailable. Ensure your Brevo API key and sender are verified.');
     }
   };
 
@@ -93,6 +102,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
     e.preventDefault();
     const cleanEmail = email.toLowerCase();
     if (otp === generatedOtp) {
+      // Mark device as trusted
       localStorage.setItem(`dragon_trusted_device_${cleanEmail}`, 'true');
       
       let user = users.find(u => u.email === cleanEmail);
@@ -116,7 +126,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
         navigate('/');
       }
     } else {
-      setError('Invalid code. Please try again.');
+      setError('Invalid security code. Check your email and try again.');
     }
   };
 
