@@ -26,6 +26,17 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
   const [resendCooldown, setResendCooldown] = useState(0);
   const navigate = useNavigate();
 
+  // Auto-check for trusted device on load
+  useEffect(() => {
+    const lastEmail = localStorage.getItem('dragon_last_email');
+    if (lastEmail) {
+      const isTrusted = localStorage.getItem(`dragon_trusted_device_${lastEmail.toLowerCase()}`) === 'true';
+      if (isTrusted && users.length > 0) {
+        handleSendCode(undefined, lastEmail);
+      }
+    }
+  }, [users]);
+
   useEffect(() => {
     let timer: number;
     if (resendCooldown > 0) {
@@ -34,29 +45,28 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  const handleSendCode = async (e?: React.FormEvent) => {
+  const handleSendCode = async (e?: React.FormEvent, directEmail?: string) => {
     e?.preventDefault();
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = (directEmail || email).trim().toLowerCase();
     
     // Check if user exists
     let user = users.find(u => u.email === cleanEmail);
     const isAdmin = ADMIN_EMAILS.includes(cleanEmail);
 
     if (!user && !isAdmin) {
-      setError('Merchant email not found in our database.');
+      if (!directEmail) setError('Merchant email not found in our database.');
       return;
     }
 
-    // Save last email for convenience
+    // Save last email
     localStorage.setItem('dragon_last_email', cleanEmail);
 
     // Device Recognition Logic
     const isTrusted = localStorage.getItem(`dragon_trusted_device_${cleanEmail}`) === 'true';
     
-    if (isTrusted && step === 'email') {
+    if (isTrusted) {
       setStep('trusting');
       
-      // Artificial delay for UX feel, but faster than before
       setTimeout(() => {
         if (isAdmin) {
           user = user ? { ...user, role: 'admin', status: 'approved' } : {
@@ -76,9 +86,9 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
           navigate('/');
         } else {
           setStep('email');
-          setError('Session could not be restored. Please try again.');
+          setError('Trust token validation failed. Please re-enter email.');
         }
-      }, 600);
+      }, 500);
       return;
     }
 
@@ -126,7 +136,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
         navigate('/');
       }
     } else {
-      setError('Invalid security code. Check your email and try again.');
+      setError('Invalid security code. Please check and try again.');
     }
   };
 
@@ -179,7 +189,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
               
               <div className="pt-6 border-t border-white/5 text-center">
                 <Link to="/signup" className="text-slate-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2">
-                  Request Access Account <ArrowRight className="w-3 h-3" />
+                  Enroll New Merchant <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
             </form>
@@ -188,7 +198,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
           {step === 'otp' && (
             <form onSubmit={handleVerifyCode} className="space-y-6">
               <div className="text-center space-y-2">
-                <h3 className="text-xl font-bold text-white tracking-tight uppercase">Verification Code</h3>
+                <h3 className="text-xl font-bold text-white tracking-tight uppercase">Security Shield</h3>
                 <p className="text-slate-500 text-xs font-bold">Sent to: {email}</p>
               </div>
               
@@ -215,7 +225,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
                 type="submit" 
                 className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg text-sm uppercase tracking-widest active:scale-[0.98] transition-all"
               >
-                Verify & Enter
+                Verify & Unlock
               </button>
               
               <div className="flex flex-col gap-4 pt-6 border-t border-white/5">
@@ -239,8 +249,8 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
                  <MonitorCheck className="w-12 h-12 text-emerald-500" />
               </div>
               <div className="text-center space-y-2">
-                <h3 className="text-lg font-bold text-white tracking-tight uppercase">Identity Verified</h3>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] animate-pulse">Syncing Session...</p>
+                <h3 className="text-lg font-bold text-white tracking-tight uppercase leading-none">Terminal Recognized</h3>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] animate-pulse">Establishing Session...</p>
               </div>
             </div>
           )}

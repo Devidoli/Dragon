@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus } from './types';
 import { INITIAL_PRODUCTS } from './constants';
@@ -36,33 +36,36 @@ const App: React.FC = () => {
       : '/'
   );
 
-  useEffect(() => {
-    const initData = async () => {
-      try {
-        const p = await SupabaseService.fetchTable('products');
-        const u = await SupabaseService.fetchTable('users');
-        const o = await SupabaseService.fetchTable('orders');
-        const cs = await SupabaseService.fetchTable('counter_sales');
+  const refreshData = useCallback(async () => {
+    try {
+      const p = await SupabaseService.fetchTable('products');
+      const u = await SupabaseService.fetchTable('users');
+      const o = await SupabaseService.fetchTable('orders');
+      const cs = await SupabaseService.fetchTable('counter_sales');
 
-        const processedUsers: User[] = u.map((user: User) => {
-          if (ADMIN_EMAILS.includes(user.email.toLowerCase())) {
-            return { ...user, role: 'admin' as UserRole, status: 'approved' as UserStatus };
-          }
-          return user;
-        });
+      const processedUsers: User[] = u.map((user: User) => {
+        if (ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+          return { ...user, role: 'admin' as UserRole, status: 'approved' as UserStatus };
+        }
+        return user;
+      });
 
-        setProducts(p.length ? p : INITIAL_PRODUCTS);
-        setUsers(processedUsers);
-        setOrders(o);
-        setCounterSales(cs);
-      } catch (err) {
-        console.error("Initialization error:", err);
-      } finally {
-        setTimeout(() => setLoading(false), 800);
-      }
-    };
-    initData();
+      setProducts(p.length ? p : INITIAL_PRODUCTS);
+      setUsers(processedUsers);
+      setOrders(o);
+      setCounterSales(cs);
+    } catch (err) {
+      console.error("Data refresh error:", err);
+    }
   }, []);
+
+  useEffect(() => {
+    const init = async () => {
+      await refreshData();
+      setTimeout(() => setLoading(false), 800);
+    };
+    init();
+  }, [refreshData]);
 
   useEffect(() => {
     localStorage.setItem('dragon_theme', theme);
@@ -120,23 +123,23 @@ const App: React.FC = () => {
   const approveUser = async (userId: string) => {
     const updated = users.map(u => u.id === userId ? { ...u, status: 'approved' as UserStatus } : u);
     setUsers(updated as User[]);
-    const user = updated.find(x => x.id === userId);
-    if (user) await SupabaseService.upsert('users', user);
+    // Use PATCH to update the status specifically
+    await SupabaseService.update('users', userId, { status: 'approved' });
   };
 
   if (loading) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-8">
       <div className="relative">
         <div className="absolute inset-0 bg-red-600/30 blur-3xl animate-pulse"></div>
-        <div className="p-8 vibrant-gradient rounded-[2.5rem] shadow-2xl relative">
+        <div className="p-8 bg-red-600 rounded-[2.5rem] shadow-2xl relative">
           <Flame className="w-16 h-16 text-white animate-bounce" />
         </div>
       </div>
       <div className="space-y-2 text-center">
-        <h2 className="text-white font-black text-2xl tracking-tighter">DRAGON HUB</h2>
+        <h2 className="text-white font-black text-2xl tracking-tighter uppercase">Dragon Hub</h2>
         <div className="flex items-center gap-2 justify-center">
            <Loader2 className="w-4 h-4 text-red-500 animate-spin" />
-           <span className="text-slate-500 font-black uppercase tracking-[0.3em] text-[10px]">Encrypting B2B Terminal...</span>
+           <span className="text-slate-500 font-bold uppercase tracking-[0.3em] text-[10px]">Syncing Terminal...</span>
         </div>
       </div>
     </div>
@@ -148,12 +151,12 @@ const App: React.FC = () => {
         {auth.isAuthenticated && (
           <nav className="sticky top-0 z-50 px-6 py-4 flex items-center justify-between border-b border-white/5 glass shadow-2xl">
             <Link to="/" className="flex items-center gap-3 group">
-              <div className="p-2 vibrant-gradient rounded-2xl shadow-lg group-hover:scale-110 transition-transform">
+              <div className="p-2 bg-red-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform">
                 <Flame className="w-6 h-6 text-white" />
               </div>
               <div className="flex flex-col -space-y-1">
-                <span className="text-xl font-black tracking-tighter text-white">Dragon Suppliers</span>
-                <span className="text-[8px] font-black uppercase tracking-[0.4em] text-red-500">Official B2B</span>
+                <span className="text-xl font-black tracking-tighter text-white uppercase">Dragon Suppliers</span>
+                <span className="text-[8px] font-bold uppercase tracking-[0.4em] text-red-500">Official B2B</span>
               </div>
             </Link>
 
@@ -170,7 +173,7 @@ const App: React.FC = () => {
               ) : (
                 <div className="flex items-center gap-3 px-4 py-2 bg-slate-900/50 border border-white/5 rounded-2xl shadow-inner">
                   <ShieldCheck className="w-4 h-4 text-red-500" />
-                  <span className="text-[10px] font-black text-slate-300 truncate max-w-[120px] tracking-widest">{auth.user?.shopName}</span>
+                  <span className="text-[10px] font-bold text-slate-300 truncate max-w-[120px] tracking-widest uppercase">{auth.user?.shopName}</span>
                 </div>
               )}
               
@@ -186,7 +189,7 @@ const App: React.FC = () => {
             <Route path="/login" element={auth.isAuthenticated ? <Navigate to="/" /> : <Login setAuth={setAuth} users={users} />} />
             <Route path="/signup" element={auth.isAuthenticated ? <Navigate to="/" /> : <Signup setAuth={setAuth} setUsers={setUsers} users={users} />} />
             <Route path="/" element={auth.isAuthenticated ? (auth.user?.role === 'admin' ? <Navigate to="/admin" /> : <Shop user={auth.user!} products={products} placeOrder={placeOrder} orders={orders} />) : <Navigate to="/login" />} />
-            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} addCounterSale={addCounterSale} /> : <Navigate to="/login" />} />
+            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} addCounterSale={addCounterSale} onRefresh={refreshData} /> : <Navigate to="/login" />} />
             <Route path="/admin/customer/:id" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <CustomerDetails users={users} orders={orders} /> : <Navigate to="/login" />} />
           </Routes>
         </main>

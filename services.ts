@@ -12,7 +12,7 @@ const BREVO_KEY = getEnv('VITE_BREVO_API_KEY');
 export const SupabaseService = {
   async fetchTable(table: string) {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-      console.warn(`Supabase credentials missing for table: ${table}. Check your Vercel environment variables.`);
+      console.error(`Supabase config missing. URL: ${!!SUPABASE_URL}, Key: ${!!SUPABASE_KEY}`);
       return [];
     }
     try {
@@ -22,10 +22,15 @@ export const SupabaseService = {
           'Authorization': `Bearer ${SUPABASE_KEY}`
         }
       });
+      if (!response.ok) {
+        const err = await response.text();
+        console.error(`Supabase Fetch Error (${table}):`, err);
+        return [];
+      }
       const data = await response.json();
       return Array.isArray(data) ? data : [];
     } catch (e) {
-      console.error(`Error fetching ${table}:`, e);
+      console.error(`Network error fetching ${table}:`, e);
       return [];
     }
   },
@@ -33,18 +38,44 @@ export const SupabaseService = {
   async upsert(table: string, data: any) {
     if (!SUPABASE_URL || !SUPABASE_KEY) return;
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      // We use POST with resolution=merge-duplicates for standard PostgREST upsert
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`,
           'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates'
+          'Prefer': 'resolution=merge-duplicates, return=representation'
         },
         body: JSON.stringify(data)
       });
+      if (!response.ok) {
+        const err = await response.text();
+        console.error(`Supabase Upsert Error (${table}):`, err);
+      }
     } catch (e) {
-      console.error(`Error upserting to ${table}:`, e);
+      console.error(`Network error upserting to ${table}:`, e);
+    }
+  },
+
+  async update(table: string, id: string, data: any) {
+    if (!SUPABASE_URL || !SUPABASE_KEY) return;
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
+      if (!response.ok) {
+        const err = await response.text();
+        console.error(`Supabase Update Error (${table}):`, err);
+      }
+    } catch (e) {
+      console.error(`Network error updating ${table}:`, e);
     }
   },
 
@@ -66,10 +97,8 @@ export const SupabaseService = {
 
 export const EmailService = {
   async sendOTP(email: string, otp: string) {
-    console.log(`[EmailService] Dispatching OTP ${otp} to ${email}`);
-    
     if (!BREVO_KEY) {
-      console.error('ERROR: VITE_BREVO_API_KEY is missing. Code will not be sent.');
+      console.error('ERROR: VITE_BREVO_API_KEY is missing.');
       return false;
     }
 
@@ -98,12 +127,7 @@ export const EmailService = {
         })
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        console.error('Brevo API Error:', errData);
-        return false;
-      }
-      return true;
+      return response.ok;
     } catch (e) {
       console.error('Connection error during email dispatch:', e);
       return false;
