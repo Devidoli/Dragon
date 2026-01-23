@@ -85,17 +85,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
       setStep('otp');
       setResendCooldown(30);
     } else {
-      if (isAdmin) {
-        console.log('--- ADMIN LOGIN CODE ---');
-        console.log(`CODE: ${code}`);
-        console.log('------------------------');
-        setGeneratedOtp(code);
-        setStep('otp');
-        setResendCooldown(30);
-        setError('Verification bypass active: Check browser console (F12) for the code.');
-      } else {
-        setError('Verification service offline. Please check your internet or contact support.');
-      }
+      setError('Verification service unavailable. Please check your internet or contact support.');
     }
   };
 

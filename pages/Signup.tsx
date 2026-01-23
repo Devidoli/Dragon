@@ -54,17 +54,7 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
       setStep('otp');
       setResendCooldown(30);
     } else {
-      if (ADMIN_EMAILS.includes(cleanEmail)) {
-        console.log('--- ADMIN SIGNUP CODE ---');
-        console.log(`CODE: ${code}`);
-        console.log('-------------------------');
-        setGeneratedOtp(code);
-        setStep('otp');
-        setResendCooldown(30);
-        setError('Verification bypass active: Check console for code.');
-      } else {
-        setError('Failed to send verification code. Please check your internet.');
-      }
+      setError('Failed to send verification code. Please check your internet or email settings.');
     }
   };
 
