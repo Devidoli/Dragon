@@ -66,10 +66,13 @@ export const SupabaseService = {
 
 export const EmailService = {
   async sendOTP(email: string, otp: string) {
+    console.log(`[EmailService] Attempting to send OTP ${otp} to ${email}`);
+    
     if (!BREVO_KEY) {
-      console.error('Brevo API key (VITE_BREVO_API_KEY) is missing.');
+      console.error('CRITICAL: VITE_BREVO_API_KEY is missing from environment variables.');
       return false;
     }
+
     try {
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
@@ -97,9 +100,15 @@ export const EmailService = {
           `
         })
       });
-      return response.ok;
+
+      if (!response.ok) {
+        const err = await response.json();
+        console.error('Brevo API Error Details:', err);
+        return false;
+      }
+      return true;
     } catch (e) {
-      console.error('Email error:', e);
+      console.error('Network error during email dispatch:', e);
       return false;
     }
   }
