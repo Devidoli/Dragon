@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, AuthState } from '../types';
-import { EmailService } from '../services';
+import { EmailService, SupabaseService } from '../services';
 import { Mail, ArrowRight, Flame, Loader2, MonitorCheck, RefreshCw, AlertCircle } from 'lucide-react';
 
 interface LoginProps {
@@ -26,50 +26,25 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
   const [resendCooldown, setResendCooldown] = useState(0);
   const navigate = useNavigate();
 
-  // Auto-check for trusted device on load
-  useEffect(() => {
-    const lastEmail = localStorage.getItem('dragon_last_email');
-    if (lastEmail) {
-      const isTrusted = localStorage.getItem(`dragon_trusted_device_${lastEmail.toLowerCase()}`) === 'true';
-      if (isTrusted && users.length > 0) {
-        handleSendCode(undefined, lastEmail);
-      }
-    }
-  }, [users]);
-
-  useEffect(() => {
-    let timer: number;
-    if (resendCooldown > 0) {
-      timer = window.setInterval(() => setResendCooldown(prev => prev - 1), 1000);
-    }
-    return () => clearInterval(timer);
-  }, [resendCooldown]);
-
-  const handleSendCode = async (e?: React.FormEvent, directEmail?: string) => {
+  const handleSendCode = useCallback(async (e?: React.FormEvent, directEmail?: string) => {
     e?.preventDefault();
     const cleanEmail = (directEmail || email).trim().toLowerCase();
-    
-    // Check if user exists
-    let user = users.find(u => u.email === cleanEmail);
-    const isAdmin = ADMIN_EMAILS.includes(cleanEmail);
+    if (!cleanEmail) return;
 
-    if (!user && !isAdmin) {
-      if (!directEmail) setError('Merchant email not found in our database.');
-      return;
-    }
-
-    // Save last email
-    localStorage.setItem('dragon_last_email', cleanEmail);
-
-    // Device Recognition Logic
+    // Check trust status
     const isTrusted = localStorage.getItem(`dragon_trusted_device_${cleanEmail}`) === 'true';
     
     if (isTrusted) {
       setStep('trusting');
       
-      setTimeout(() => {
-        if (isAdmin) {
-          user = user ? { ...user, role: 'admin', status: 'approved' } : {
+      // Fetch user profile specifically for faster login and verification
+      const userProfile = await SupabaseService.fetchUserByEmail(cleanEmail);
+      const isAdmin = ADMIN_EMAILS.includes(cleanEmail);
+
+      if (userProfile || isAdmin) {
+        let authUser = userProfile;
+        if (isAdmin && !authUser) {
+           authUser = {
             id: 'ADMIN-' + cleanEmail.split('@')[0],
             email: cleanEmail,
             role: 'admin',
@@ -81,18 +56,21 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
           };
         }
         
-        if (user) {
-          setAuth({ user, isAuthenticated: true });
+        if (authUser) {
+          localStorage.setItem('dragon_last_email', cleanEmail);
+          setAuth({ user: authUser, isAuthenticated: true });
           navigate('/');
-        } else {
-          setStep('email');
-          setError('Trust token validation failed. Please re-enter email.');
+          return;
         }
-      }, 500);
+      }
+      
+      // If we got here, trust failed or user not found
+      setStep('email');
+      if (!directEmail) setError('Account not found. Please check your email.');
       return;
     }
 
-    // Normal OTP flow
+    // Normal flow
     setIsSending(true);
     setError('');
     const code = Math.floor(1000 + Math.random() * 9000).toString();
@@ -103,23 +81,42 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
       setGeneratedOtp(code);
       setStep('otp');
       setResendCooldown(30);
+      localStorage.setItem('dragon_last_email', cleanEmail);
     } else {
-      setError('Verification service unavailable. Ensure your Brevo API key and sender are verified.');
+      setError('Verification service offline. Please try again later.');
     }
-  };
+  }, [email, setAuth, navigate]);
+
+  // Immediate trust check on mount
+  useEffect(() => {
+    const lastEmail = localStorage.getItem('dragon_last_email');
+    if (lastEmail) {
+      const isTrusted = localStorage.getItem(`dragon_trusted_device_${lastEmail.toLowerCase()}`) === 'true';
+      if (isTrusted) {
+        handleSendCode(undefined, lastEmail);
+      }
+    }
+  }, [handleSendCode]);
+
+  useEffect(() => {
+    let timer: number;
+    if (resendCooldown > 0) {
+      timer = window.setInterval(() => setResendCooldown(prev => prev - 1), 1000);
+    }
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   const handleVerifyCode = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = email.toLowerCase();
     if (otp === generatedOtp) {
-      // Mark device as trusted
       localStorage.setItem(`dragon_trusted_device_${cleanEmail}`, 'true');
       
       let user = users.find(u => u.email === cleanEmail);
       const isAdmin = ADMIN_EMAILS.includes(cleanEmail);
 
-      if (isAdmin) {
-        user = user ? { ...user, role: 'admin', status: 'approved' } : {
+      if (isAdmin && !user) {
+        user = {
           id: 'ADMIN-' + cleanEmail.split('@')[0],
           email: cleanEmail,
           role: 'admin',
@@ -134,9 +131,12 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
       if (user) {
         setAuth({ user, isAuthenticated: true });
         navigate('/');
+      } else {
+        setError('Login successful, but profile synchronization failed. Refreshing...');
+        window.location.reload();
       }
     } else {
-      setError('Invalid security code. Please check and try again.');
+      setError('Invalid security code.');
     }
   };
 

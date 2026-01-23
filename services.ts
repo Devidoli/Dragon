@@ -7,17 +7,11 @@ const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
 const SUPABASE_KEY = getEnv('VITE_SUPABASE_KEY');
 const BREVO_KEY = getEnv('VITE_BREVO_API_KEY');
 
-// Helper to normalize data for Supabase (handles both camelCase and snake_case mapping)
+// Robust mapping for DB columns to ensure no data loss
 const normalizeToDB = (data: any) => {
   const mapping: Record<string, string> = {
     'shopName': 'shop_name',
     'createdAt': 'created_at',
-    'id': 'id',
-    'email': 'email',
-    'phone': 'phone',
-    'address': 'address',
-    'role': 'role',
-    'status': 'status'
   };
   
   const normalized: any = {};
@@ -44,23 +38,38 @@ const normalizeFromDB = (data: any) => {
 
 export const SupabaseService = {
   async fetchTable(table: string) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      console.error("Supabase config missing.");
+    if (!SUPABASE_URL || !SUPABASE_KEY) return [];
+    try {
+      // Adding no-cache to ensure we get the latest data from the server
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Cache-Control': 'no-cache'
+        }
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data) ? data.map(normalizeFromDB) : [];
+    } catch (e) {
+      console.error(`Fetch error:`, e);
       return [];
     }
+  },
+
+  async fetchUserByEmail(email: string) {
+    if (!SUPABASE_URL || !SUPABASE_KEY) return null;
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/users?email=eq.${email.toLowerCase()}&select=*`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
         }
       });
-      if (!response.ok) throw new Error(await response.text());
       const data = await response.json();
-      return Array.isArray(data) ? data.map(normalizeFromDB) : [];
+      return data && data[0] ? normalizeFromDB(data[0]) : null;
     } catch (e) {
-      console.error(`Fetch error (${table}):`, e);
-      return [];
+      return null;
     }
   },
 
@@ -68,7 +77,8 @@ export const SupabaseService = {
     if (!SUPABASE_URL || !SUPABASE_KEY) return;
     try {
       const dbData = normalizeToDB(data);
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      // Crucial: on_conflict=id tells Supabase how to handle existing records
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=id`, {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_KEY,
@@ -79,21 +89,10 @@ export const SupabaseService = {
         body: JSON.stringify(dbData)
       });
       if (!response.ok) {
-        const err = await response.text();
-        console.warn(`Upsert failed, attempting fallback POST: ${err}`);
-        // Fallback to simple POST if upsert headers fail
-        await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(dbData)
-        });
+        console.error(`DB Upsert Error:`, await response.text());
       }
     } catch (e) {
-      console.error(`Network error upserting to ${table}:`, e);
+      console.error(`Network error:`, e);
     }
   },
 
@@ -101,7 +100,7 @@ export const SupabaseService = {
     if (!SUPABASE_URL || !SUPABASE_KEY) return;
     try {
       const dbData = normalizeToDB(data);
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+      await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
         method: 'PATCH',
         headers: {
           'apikey': SUPABASE_KEY,
@@ -110,10 +109,7 @@ export const SupabaseService = {
         },
         body: JSON.stringify(dbData)
       });
-      if (!response.ok) console.error(`Update Error:`, await response.text());
-    } catch (e) {
-      console.error(`Network error updating ${table}:`, e);
-    }
+    } catch (e) {}
   },
 
   async delete(table: string, id: string) {
@@ -126,18 +122,13 @@ export const SupabaseService = {
           'Authorization': `Bearer ${SUPABASE_KEY}`
         }
       });
-    } catch (e) {
-      console.error(`Error deleting from ${table}:`, e);
-    }
+    } catch (e) {}
   }
 };
 
 export const EmailService = {
   async sendOTP(email: string, otp: string) {
-    if (!BREVO_KEY) {
-      console.error('ERROR: VITE_BREVO_API_KEY is missing.');
-      return false;
-    }
+    if (!BREVO_KEY) return false;
     try {
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
@@ -153,18 +144,15 @@ export const EmailService = {
           htmlContent: `
             <div style="font-family: sans-serif; padding: 40px; background-color: #0f172a; color: #ffffff; max-width: 500px; margin: 0 auto; border-radius: 20px;">
               <h1 style="color: #ef4444; text-align: center; font-size: 24px;">DRAGON SUPPLIERS</h1>
-              <p style="text-align: center; color: #94a3b8;">Use the code below to access your merchant terminal:</p>
               <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; text-align: center; margin: 30px 0;">
                 <span style="font-size: 40px; font-weight: 800; color: #ffffff; letter-spacing: 10px;">${otp}</span>
               </div>
-              <p style="font-size: 12px; color: #475569; text-align: center;">This code is valid for one-time use only.</p>
             </div>
           `
         })
       });
       return response.ok;
     } catch (e) {
-      console.error('Email dispatch error:', e);
       return false;
     }
   }
