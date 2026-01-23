@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, AuthState } from '../types';
 import { EmailService } from '../services';
-import { Mail, ArrowRight, ShieldCheck, Flame, Loader2, KeyRound, MonitorCheck, RefreshCw, AlertCircle } from 'lucide-react';
+import { Mail, ArrowRight, Flame, Loader2, KeyRound, MonitorCheck, RefreshCw, AlertCircle } from 'lucide-react';
 
 interface LoginProps {
   setAuth: React.Dispatch<React.SetStateAction<AuthState>>;
@@ -42,7 +42,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
     const isAdmin = ADMIN_EMAILS.includes(cleanEmail);
 
     if (!user && !isAdmin) {
-      setError('Merchant ID not recognized in our database.');
+      setError('Merchant email not found in our database.');
       return;
     }
 
@@ -70,7 +70,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
           setStep('email');
           setError('Trust token expired. Please re-verify.');
         }
-      }, 1000);
+      }, 800);
       return;
     }
 
@@ -86,18 +86,15 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
       setResendCooldown(30);
     } else {
       if (isAdmin) {
-        console.warn('--- DRAGON ADMIN BYPASS ---');
-        console.warn(`Email: ${cleanEmail}`);
-        console.warn(`Security Code: ${code}`);
-        console.warn('Fix: Ensure VITE_BREVO_API_KEY is correct & olidevid203@gmail.com is a verified sender in Brevo dashboard.');
-        console.warn('---------------------------');
-        
+        console.log('--- ADMIN LOGIN CODE ---');
+        console.log(`CODE: ${code}`);
+        console.log('------------------------');
         setGeneratedOtp(code);
         setStep('otp');
         setResendCooldown(30);
-        setError('Verification service offline. Admin bypass active: check browser console (F12) for code.');
+        setError('Verification bypass active: Check browser console (F12) for the code.');
       } else {
-        setError('Failed to send verification code. Ensure your Brevo sender is verified or contact support.');
+        setError('Verification service offline. Please check your internet or contact support.');
       }
     }
   };
@@ -129,44 +126,44 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
         navigate('/');
       }
     } else {
-      setError('Invalid security code.');
+      setError('Invalid code. Please try again.');
     }
   };
 
   return (
     <div className="min-h-screen bg-[#020617] text-white flex items-center justify-center p-6 font-sans">
-      <div className="w-full max-w-[340px] relative">
-        <div className="absolute -top-16 -left-16 w-32 h-32 bg-red-600/5 rounded-full blur-[80px]"></div>
+      <div className="w-full max-w-[400px] relative">
+        <div className="absolute -top-20 -left-20 w-48 h-48 bg-red-600/5 rounded-full blur-[100px]"></div>
         
-        <div className="text-center mb-8 space-y-2 relative z-10">
-          <div className="inline-flex p-2.5 vibrant-gradient rounded-xl shadow-2xl shadow-red-500/10 mb-1">
-            <Flame className="w-5 h-5 text-white" />
+        <div className="text-center mb-10 space-y-4 relative z-10">
+          <div className="inline-flex p-4 bg-red-600 rounded-2xl shadow-xl mb-2">
+            <Flame className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-xl font-black tracking-tight text-white uppercase italic">Dragon Suppliers</h1>
-          <p className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-500">Official B2B Terminal</p>
+          <h1 className="text-3xl font-extrabold tracking-tight text-white uppercase">Dragon Suppliers</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.4em] text-slate-500">Official Merchant Portal</p>
         </div>
 
-        <div className="glass p-7 rounded-[2rem] shadow-2xl border border-white/5 relative z-10">
+        <div className="glass p-10 rounded-[2.5rem] shadow-2xl border border-white/10 relative z-10">
           {step === 'email' && (
-            <form onSubmit={handleSendCode} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500 ml-1">Secure Email</label>
+            <form onSubmit={handleSendCode} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-widest text-slate-400 ml-1">Access Email</label>
                 <div className="relative group">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
                   <input 
                     type="email" 
                     required 
                     value={email} 
                     onChange={(e) => setEmail(e.target.value)} 
-                    placeholder="merchant@gmail.com" 
-                    className="w-full bg-slate-900/40 border border-white/5 rounded-xl py-2.5 pl-10 pr-4 text-white font-bold focus:outline-none focus:border-red-500/50 transition-all text-[11px]"
+                    placeholder="merchant@example.com" 
+                    className="w-full bg-slate-900/60 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white font-medium focus:outline-none focus:border-red-500 transition-all text-base"
                   />
                 </div>
               </div>
 
               {error && (
-                <div className="flex items-start gap-2 text-red-400 text-[9px] font-bold bg-red-500/5 p-2.5 rounded-lg border border-red-500/10">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <div className="flex items-start gap-3 text-red-400 text-xs font-bold bg-red-500/5 p-4 rounded-xl border border-red-500/20">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
                   <span>{error}</span>
                 </div>
               )}
@@ -174,25 +171,25 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
               <button 
                 type="submit" 
                 disabled={isSending} 
-                className="w-full vibrant-gradient text-white font-black py-2.5 rounded-xl shadow-xl flex items-center justify-center gap-2 text-[9px] uppercase tracking-widest transition-all active:scale-[0.98] disabled:opacity-50"
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm uppercase tracking-widest transition-all active:scale-[0.98] disabled:opacity-50"
               >
-                {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Access Terminal"}
-                {!isSending && <ArrowRight className="w-3 h-3" />}
+                {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Authorize Entry"}
+                {!isSending && <ArrowRight className="w-4 h-4" />}
               </button>
               
-              <div className="pt-3 border-t border-white/5 text-center">
-                <Link to="/signup" className="text-slate-500 hover:text-white transition-colors text-[8px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-1.5">
-                  Enroll New Merchant <ArrowRight className="w-2.5 h-2.5" />
+              <div className="pt-6 border-t border-white/5 text-center">
+                <Link to="/signup" className="text-slate-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2">
+                  Request Access Account <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
             </form>
           )}
 
           {step === 'otp' && (
-            <form onSubmit={handleVerifyCode} className="space-y-5">
-              <div className="text-center space-y-1">
-                <h3 className="text-md font-black text-white tracking-tight uppercase italic">Security Shield</h3>
-                <p className="text-slate-500 text-[9px] font-bold italic">Verify: {email}</p>
+            <form onSubmit={handleVerifyCode} className="space-y-6">
+              <div className="text-center space-y-2">
+                <h3 className="text-xl font-bold text-white tracking-tight uppercase">Verification Code</h3>
+                <p className="text-slate-500 text-xs font-bold">Sent to: {email}</p>
               </div>
               
               <div className="relative">
@@ -203,47 +200,47 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
                   value={otp} 
                   onChange={(e) => setOtp(e.target.value)} 
                   placeholder="0000" 
-                  className="w-full bg-slate-900/60 border border-white/5 rounded-xl py-2.5 text-center text-2xl font-black tracking-[0.4em] focus:outline-none focus:border-red-500 text-white placeholder:text-slate-800"
+                  className="w-full bg-slate-900/80 border border-white/10 rounded-xl py-4 text-center text-4xl font-black tracking-[0.5em] focus:outline-none focus:border-red-500 text-white placeholder:text-slate-800"
                 />
               </div>
 
               {error && (
-                <div className="flex items-start gap-2 text-red-400 text-[9px] font-bold bg-red-500/5 p-2.5 rounded-lg border border-red-500/10">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <div className="flex items-start gap-3 text-red-400 text-xs font-bold bg-red-500/5 p-4 rounded-xl border border-red-500/20">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
                   <span>{error}</span>
                 </div>
               )}
               
               <button 
                 type="submit" 
-                className="w-full vibrant-gradient text-white font-black py-2.5 rounded-xl shadow-xl text-[9px] uppercase tracking-widest active:scale-[0.98] transition-all"
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg text-sm uppercase tracking-widest active:scale-[0.98] transition-all"
               >
-                Unlock Dashboard
+                Verify & Enter
               </button>
               
-              <div className="flex flex-col gap-2 pt-3 border-t border-white/5">
+              <div className="flex flex-col gap-4 pt-6 border-t border-white/5">
                 <button 
                   type="button" 
                   onClick={() => handleSendCode()} 
                   disabled={resendCooldown > 0 || isSending}
-                  className="text-slate-500 hover:text-white transition-colors text-[8px] font-black uppercase tracking-widest disabled:opacity-50 flex items-center justify-center gap-1"
+                  className="text-slate-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  <RefreshCw className={`w-2.5 h-2.5 ${isSending ? 'animate-spin' : ''}`} />
-                  {resendCooldown > 0 ? `Retry in ${resendCooldown}s` : "Resend Signal"}
+                  <RefreshCw className={`w-4 h-4 ${isSending ? 'animate-spin' : ''}`} />
+                  {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend Security Code"}
                 </button>
-                <button type="button" onClick={() => setStep('email')} className="text-slate-600 hover:text-white transition-colors text-[7px] font-black uppercase tracking-widest underline underline-offset-4">Change ID</button>
+                <button type="button" onClick={() => setStep('email')} className="text-slate-600 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest underline underline-offset-4">Change Email</button>
               </div>
             </form>
           )}
 
           {step === 'trusting' && (
-            <div className="py-8 flex flex-col items-center space-y-3 animate-in zoom-in duration-300">
-              <div className="p-3 bg-emerald-500/10 rounded-full">
-                 <MonitorCheck className="w-8 h-8 text-emerald-500" />
+            <div className="py-12 flex flex-col items-center space-y-6 animate-in zoom-in duration-300">
+              <div className="p-5 bg-emerald-500/10 rounded-full">
+                 <MonitorCheck className="w-12 h-12 text-emerald-500" />
               </div>
-              <div className="text-center space-y-0.5">
-                <h3 className="text-sm font-black text-white tracking-tight uppercase">Terminal Recognized</h3>
-                <p className="text-slate-500 text-[8px] font-black uppercase tracking-[0.2em] animate-pulse">Syncing Session...</p>
+              <div className="text-center space-y-2">
+                <h3 className="text-lg font-bold text-white tracking-tight uppercase">Identity Verified</h3>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] animate-pulse">Syncing Session...</p>
               </div>
             </div>
           )}

@@ -66,10 +66,10 @@ export const SupabaseService = {
 
 export const EmailService = {
   async sendOTP(email: string, otp: string) {
-    console.log(`[EmailService] Attempting to send OTP ${otp} to ${email}`);
+    console.log(`[EmailService] Dispatching OTP ${otp} to ${email}`);
     
     if (!BREVO_KEY) {
-      console.error('CRITICAL: VITE_BREVO_API_KEY is missing from environment variables.');
+      console.error('ERROR: VITE_BREVO_API_KEY is missing. Code will not be sent.');
       return false;
     }
 
@@ -84,31 +84,28 @@ export const EmailService = {
         body: JSON.stringify({
           sender: { name: 'Dragon Suppliers', email: 'olidevid203@gmail.com' },
           to: [{ email: email }],
-          subject: 'Your Dragon Suppliers Verification Code',
+          subject: 'Dragon Suppliers: Verification Code',
           htmlContent: `
-            <div style="font-family: sans-serif; padding: 40px; background-color: #0f172a; border-radius: 32px; color: #ffffff; max-width: 500px; margin: 0 auto; border: 1px solid rgba(255,255,255,0.1);">
-              <div style="text-align: center; margin-bottom: 32px;">
-                <h1 style="background: linear-gradient(135deg, #dc2626 0%, #d97706 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -1px;">DRAGON SUPPLIERS</h1>
-                <p style="color: #64748b; margin-top: 4px; font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 3px;">Official B2B Network</p>
+            <div style="font-family: sans-serif; padding: 40px; background-color: #0f172a; color: #ffffff; max-width: 500px; margin: 0 auto; border-radius: 20px;">
+              <h1 style="color: #ef4444; text-align: center; font-size: 24px;">DRAGON SUPPLIERS</h1>
+              <p style="text-align: center; color: #94a3b8;">Use the code below to access your merchant terminal:</p>
+              <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; text-align: center; margin: 30px 0;">
+                <span style="font-size: 40px; font-weight: 800; color: #ffffff; letter-spacing: 10px;">${otp}</span>
               </div>
-              <p style="font-size: 16px; font-weight: 500; color: #94a3b8; text-align: center;">Enter the following secure code to access the terminal:</p>
-              <div style="background: rgba(255,255,255,0.05); padding: 32px; border-radius: 24px; text-align: center; margin: 32px 0; border: 1px solid rgba(255,255,255,0.1);">
-                <span style="font-size: 56px; font-weight: 900; letter-spacing: 12px; color: #ef4444; font-family: monospace;">${otp}</span>
-              </div>
-              <p style="font-size: 12px; color: #475569; text-align: center; line-height: 1.6;">SECURITY PROTOCOL: Do not share this code. Valid for one-time use only.</p>
+              <p style="font-size: 12px; color: #475569; text-align: center;">This code is valid for one-time use only. Do not share it with anyone.</p>
             </div>
           `
         })
       });
 
       if (!response.ok) {
-        const err = await response.json();
-        console.error('Brevo API Error Details:', err);
+        const errData = await response.json();
+        console.error('Brevo API Error:', errData);
         return false;
       }
       return true;
     } catch (e) {
-      console.error('Network error during email dispatch:', e);
+      console.error('Connection error during email dispatch:', e);
       return false;
     }
   }
