@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { User, Product, Order, CounterSale, UserStatus } from '../types';
 import { LIQUOR_VOLUMES, CATEGORIES } from '../constants';
 import { 
   Users, Package, TrendingUp, Plus, ArrowUpRight, Flame, Trash2, 
   ShoppingCart, ShieldCheck, Clock, RefreshCcw, Loader2, Check, 
-  CheckCircle, BarChart3, Wallet, IndianRupee 
+  CheckCircle, BarChart3, Wallet, IndianRupee, Search, X
 } from 'lucide-react';
 import { CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from 'recharts';
 
@@ -43,8 +43,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newProduct, setNewProduct] = useState({ name: '', category: 'Whisky', volume: 'Full (750ml)', price: 0, stock: 0, image: '', unit: 'Bottle' });
   
   // Counter Sale State
-  const [selectedProduct, setSelectedProduct] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [saleQty, setSaleQty] = useState(1);
+  const [customPrice, setCustomPrice] = useState<number>(0);
+
+  // Sync custom price when product selection changes
+  useEffect(() => {
+    if (selectedProduct) {
+      setCustomPrice(selectedProduct.price);
+    } else {
+      setCustomPrice(0);
+    }
+  }, [selectedProduct]);
+
+  const filteredSearchProducts = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    return products.filter(p => 
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.category.toLowerCase().includes(searchQuery.toLowerCase())
+    ).slice(0, 5);
+  }, [products, searchQuery]);
 
   const handleManualRefresh = async () => {
     if (onRefresh) {
@@ -74,18 +93,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleCounterSaleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const prod = products.find(p => p.id === selectedProduct);
-    if (prod && saleQty > 0) {
+    if (selectedProduct && saleQty > 0) {
       addCounterSale({
         id: `CS-${Date.now()}`,
-        productId: prod.id,
-        productName: prod.name,
-        price: prod.price,
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
+        price: customPrice,
         quantity: saleQty,
-        total: prod.price * saleQty,
+        total: customPrice * saleQty,
         createdAt: new Date().toISOString()
       });
-      setSelectedProduct('');
+      setSelectedProduct(null);
+      setSearchQuery('');
       setSaleQty(1);
     }
   };
@@ -216,38 +235,122 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              <form onSubmit={handleCounterSaleSubmit} className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Select Spirit</label>
-                    <select 
-                      required 
-                      value={selectedProduct} 
-                      onChange={(e) => setSelectedProduct(e.target.value)}
-                      className="w-full bg-slate-900/60 border border-white/10 rounded-2xl p-5 text-white font-bold outline-none focus:border-red-500"
+              <div className="space-y-8">
+                {/* Search Interface */}
+                {!selectedProduct ? (
+                  <div className="relative">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2 block">Search Catalog</label>
+                    <div className="relative">
+                      <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                      <input 
+                        type="text" 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search by name or category..."
+                        className="w-full bg-slate-900/60 border border-white/10 rounded-2xl py-5 pl-14 pr-5 text-white font-bold outline-none focus:border-red-500 transition-all"
+                      />
+                    </div>
+                    {filteredSearchProducts.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden divide-y divide-white/5">
+                        {filteredSearchProducts.map(p => (
+                          <button 
+                            key={p.id} 
+                            onClick={() => setSelectedProduct(p)}
+                            className="w-full text-left p-5 hover:bg-red-500/10 transition-colors flex items-center justify-between group"
+                          >
+                            <div className="flex items-center gap-4">
+                              <img src={p.image} className="w-10 h-10 rounded-lg object-cover" />
+                              <div>
+                                <p className="font-black text-white text-sm">{p.name}</p>
+                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{p.volume} • {p.category}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-black text-emerald-500">Rs. {p.price}</p>
+                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{p.stock} in stock</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-slate-900/40 border border-emerald-500/20 rounded-3xl p-8 relative animate-in fade-in slide-in-from-top-4">
+                    <button 
+                      onClick={() => setSelectedProduct(null)}
+                      className="absolute top-4 right-4 p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-all"
                     >
-                      <option value="">Choose item...</option>
-                      {products.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} ({p.volume}) - Rs.{p.price}</option>
-                      ))}
-                    </select>
+                      <X className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-6">
+                      <img src={selectedProduct.image} className="w-20 h-20 rounded-2xl object-cover shadow-2xl" />
+                      <div>
+                        <h4 className="text-2xl font-black text-white tracking-tighter leading-none">{selectedProduct.name}</h4>
+                        <div className="flex items-center gap-3 mt-2">
+                           <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">{selectedProduct.volume}</span>
+                           <span className="w-1 h-1 bg-slate-700 rounded-full" />
+                           <span className="text-[10px] font-black uppercase text-red-500 tracking-widest">{selectedProduct.category}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Dispatch Quantity</label>
-                    <input 
-                      type="number" 
-                      required 
-                      min="1" 
-                      value={saleQty} 
-                      onChange={(e) => setSaleQty(parseInt(e.target.value))} 
-                      className="w-full bg-slate-900/60 border border-white/10 rounded-2xl p-5 text-white font-bold outline-none focus:border-red-500"
-                    />
+                )}
+
+                <form onSubmit={handleCounterSaleSubmit} className="space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Sale Price (Editable)</label>
+                      <div className="relative">
+                        <IndianRupee className="absolute left-5 top-1/2 -translate-y-1/2 text-emerald-500 w-5 h-5" />
+                        <input 
+                          type="number" 
+                          required 
+                          value={customPrice || ''} 
+                          onChange={(e) => setCustomPrice(parseInt(e.target.value) || 0)}
+                          className="w-full bg-slate-900/60 border border-white/10 rounded-2xl py-5 pl-14 pr-5 text-white font-black text-2xl outline-none focus:border-red-500 transition-all"
+                          placeholder="0"
+                        />
+                      </div>
+                      {selectedProduct && customPrice !== selectedProduct.price && (
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-orange-500 animate-pulse">
+                          Custom pricing applied (Catalog: Rs. {selectedProduct.price})
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Dispatch Quantity</label>
+                      <input 
+                        type="number" 
+                        required 
+                        min="1" 
+                        max={selectedProduct?.stock || 9999}
+                        value={saleQty} 
+                        onChange={(e) => setSaleQty(parseInt(e.target.value))} 
+                        className="w-full bg-slate-900/60 border border-white/10 rounded-2xl p-5 text-white font-black text-2xl outline-none focus:border-red-500 transition-all"
+                      />
+                    </div>
                   </div>
-                </div>
-                <button type="submit" className="w-full vibrant-gradient text-white font-black py-6 rounded-3xl shadow-2xl hover:scale-[1.02] active:scale-95 transition-all text-xl uppercase tracking-tighter">
-                  Complete Cash Transaction
-                </button>
-              </form>
+                  
+                  <div className="p-8 bg-emerald-500/5 rounded-3xl border border-emerald-500/10 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Transaction Total</p>
+                      <p className="text-4xl font-black text-emerald-500 tracking-tighter">Rs. {(customPrice * saleQty).toLocaleString()}</p>
+                    </div>
+                    <div className="text-right">
+                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Inventory Post-Sale</p>
+                       <p className="text-xl font-black text-white tracking-tight">{selectedProduct ? selectedProduct.stock - saleQty : '--'} Units</p>
+                    </div>
+                  </div>
+
+                  <button 
+                    type="submit" 
+                    disabled={!selectedProduct || (selectedProduct && saleQty > selectedProduct.stock)}
+                    className="w-full vibrant-gradient text-white font-black py-7 rounded-3xl shadow-2xl hover:scale-[1.02] active:scale-95 transition-all text-2xl uppercase tracking-tighter disabled:opacity-30 disabled:hover:scale-100"
+                  >
+                    {!selectedProduct ? "Select Spirit to Continue" : (saleQty > selectedProduct.stock ? "Insufficient Stock" : "Execute Cash Settlement")}
+                  </button>
+                </form>
+              </div>
            </div>
         </div>
       )}

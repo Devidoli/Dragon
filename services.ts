@@ -124,7 +124,7 @@ export const SupabaseService = {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
           'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
+          'Prefer': 'return=minimal'
         },
         body: JSON.stringify(dbData)
       });
@@ -136,6 +136,7 @@ export const SupabaseService = {
       }
       return true;
     } catch (e) {
+      console.error("Critical Network Error in Supabase Update:", e);
       return false;
     }
   },
