@@ -1,10 +1,12 @@
-
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { User, Product, Order, CounterSale, UserStatus } from '../types';
 import { LIQUOR_VOLUMES, CATEGORIES } from '../constants';
-// Added CheckCircle to lucide-react imports
-import { Users, Package, TrendingUp, Plus, ArrowUpRight, Flame, Trash2, ShoppingCart, ShieldCheck, Clock, RefreshCcw, Loader2, Check, CheckCircle, BarChart3, Wallet, IndianRupee } from 'lucide-react';
+import { 
+  Users, Package, TrendingUp, Plus, ArrowUpRight, Flame, Trash2, 
+  ShoppingCart, ShieldCheck, Clock, RefreshCcw, Loader2, Check, 
+  CheckCircle, BarChart3, Wallet, IndianRupee 
+} from 'lucide-react';
 import { CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from 'recharts';
 
 interface AdminDashboardProps {
