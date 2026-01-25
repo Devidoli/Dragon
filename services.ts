@@ -124,7 +124,7 @@ export const SupabaseService = {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
           'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
+          'Prefer': 'return=representation'
         },
         body: JSON.stringify(dbData)
       });

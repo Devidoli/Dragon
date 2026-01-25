@@ -5,7 +5,7 @@ import { LIQUOR_VOLUMES, CATEGORIES } from '../constants';
 import { 
   Users, Package, TrendingUp, Plus, ArrowUpRight, Flame, Trash2, 
   ShoppingCart, ShieldCheck, Clock, RefreshCcw, Loader2, Check, 
-  CheckCircle, BarChart3, Wallet, IndianRupee, Search, X
+  CheckCircle, BarChart3, Wallet, IndianRupee, Search, X, Minus, Receipt
 } from 'lucide-react';
 import { CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from 'recharts';
 
@@ -20,6 +20,13 @@ interface AdminDashboardProps {
   updateStock: (id: string, qty: number) => void;
   addCounterSale: (sale: CounterSale) => void;
   onRefresh?: () => void;
+}
+
+interface BillItem {
+  id: string; // Unique ID for this specific row in the bill
+  product: Product;
+  quantity: number;
+  price: number;
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
@@ -42,28 +49,51 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // New Product State
   const [newProduct, setNewProduct] = useState({ name: '', category: 'Whisky', volume: 'Full (750ml)', price: 0, stock: 0, image: '', unit: 'Bottle' });
   
-  // Counter Sale State
+  // Multi-item Billing State
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [saleQty, setSaleQty] = useState(1);
-  const [customPrice, setCustomPrice] = useState<number>(0);
-
-  // Sync custom price when product selection changes
-  useEffect(() => {
-    if (selectedProduct) {
-      setCustomPrice(selectedProduct.price);
-    } else {
-      setCustomPrice(0);
-    }
-  }, [selectedProduct]);
+  const [billItems, setBillItems] = useState<BillItem[]>([]);
+  const [isFinalizing, setIsFinalizing] = useState(false);
 
   const filteredSearchProducts = useMemo(() => {
-    if (!searchQuery.trim()) return [];
+    if (!searchQuery.trim()) return products.slice(0, 10);
     return products.filter(p => 
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.category.toLowerCase().includes(searchQuery.toLowerCase())
-    ).slice(0, 5);
+    );
   }, [products, searchQuery]);
+
+  const addToBill = (product: Product) => {
+    setBillItems(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        return prev.map(item => 
+          item.product.id === product.id 
+            ? { ...item, quantity: item.quantity + 1 } 
+            : item
+        );
+      }
+      return [...prev, { 
+        id: `BI-${Date.now()}-${product.id}`, 
+        product, 
+        quantity: 1, 
+        price: product.price 
+      }];
+    });
+  };
+
+  const removeFromBill = (id: string) => {
+    setBillItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  const updateBillItem = (id: string, updates: Partial<BillItem>) => {
+    setBillItems(prev => prev.map(item => 
+      item.id === id ? { ...item, ...updates } : item
+    ));
+  };
+
+  const billTotal = useMemo(() => 
+    billItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+  , [billItems]);
 
   const handleManualRefresh = async () => {
     if (onRefresh) {
@@ -83,30 +113,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const handleFinalizeTransaction = async () => {
+    if (billItems.length === 0) return;
+    setIsFinalizing(true);
+    
+    // Process each item as an individual counter sale
+    for (const item of billItems) {
+      await addCounterSale({
+        id: `CS-${Date.now()}-${item.product.id}`,
+        productId: item.product.id,
+        productName: item.product.name,
+        price: item.price,
+        quantity: item.quantity,
+        total: item.price * item.quantity,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    setBillItems([]);
+    setSearchQuery('');
+    setIsFinalizing(false);
+    setShowSuccess('transaction-complete');
+    setTimeout(() => setShowSuccess(null), 3000);
+  };
+
   const handleAddProductSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const id = Date.now().toString();
     const img = newProduct.image || `https://picsum.photos/seed/${id}/400/400`;
     addProduct({ ...newProduct, id, image: img });
     setNewProduct({ name: '', category: 'Whisky', volume: 'Full (750ml)', price: 0, stock: 0, image: '', unit: 'Bottle' });
-  };
-
-  const handleCounterSaleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (selectedProduct && saleQty > 0) {
-      addCounterSale({
-        id: `CS-${Date.now()}`,
-        productId: selectedProduct.id,
-        productName: selectedProduct.name,
-        price: customPrice,
-        quantity: saleQty,
-        total: customPrice * saleQty,
-        createdAt: new Date().toISOString()
-      });
-      setSelectedProduct(null);
-      setSearchQuery('');
-      setSaleQty(1);
-    }
   };
 
   const pendingUsers = useMemo(() => 
@@ -223,133 +259,134 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {activeTab === 'counter' && (
-        <div className="max-w-4xl mx-auto animate-in zoom-in-95 duration-500">
-           <div className="glass p-10 rounded-[3rem] space-y-10 border border-white/10">
-              <div className="flex items-center gap-6">
-                <div className="p-4 bg-slate-900 rounded-2xl">
-                  <IndianRupee className="w-8 h-8 text-emerald-500" />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in zoom-in-95 duration-500">
+           {/* Left Column: Product Selection */}
+           <div className="lg:col-span-7 space-y-6">
+              <div className="glass p-8 rounded-[2.5rem] border border-white/10">
+                <div className="flex items-center gap-4 mb-8">
+                  <Search className="text-slate-400 w-6 h-6" />
+                  <input 
+                    type="text" 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search spirits for billing..."
+                    className="w-full bg-transparent border-none text-white font-black text-xl outline-none placeholder:text-slate-600"
+                  />
                 </div>
-                <div>
-                   <h2 className="text-3xl font-black text-white uppercase tracking-tighter leading-none">In-Store Billing</h2>
-                   <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mt-2">Counter Sale Terminal</p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-2 scrollbar-hide">
+                  {filteredSearchProducts.map(p => (
+                    <button 
+                      key={p.id}
+                      onClick={() => addToBill(p)}
+                      disabled={p.stock <= 0}
+                      className="group flex items-center gap-4 p-4 bg-slate-900/40 border border-white/5 rounded-2xl hover:border-red-500/50 hover:bg-slate-800 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <img src={p.image} className="w-16 h-16 rounded-xl object-cover" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-black text-white truncate">{p.name}</p>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{p.volume} • {p.stock} In Stock</p>
+                        <p className="text-emerald-500 font-black mt-1">Rs. {p.price}</p>
+                      </div>
+                      <div className="opacity-0 group-hover:opacity-100 p-2 bg-red-600 rounded-lg transition-opacity">
+                        <Plus className="w-4 h-4 text-white" />
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
+           </div>
 
-              <div className="space-y-8">
-                {/* Search Interface */}
-                {!selectedProduct ? (
-                  <div className="relative">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2 block">Search Catalog</label>
-                    <div className="relative">
-                      <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                      <input 
-                        type="text" 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search by name or category..."
-                        className="w-full bg-slate-900/60 border border-white/10 rounded-2xl py-5 pl-14 pr-5 text-white font-bold outline-none focus:border-red-500 transition-all"
-                      />
+           {/* Right Column: Current Bill / Cart */}
+           <div className="lg:col-span-5 space-y-6">
+              <div className="glass h-full rounded-[3rem] border border-white/10 flex flex-col overflow-hidden bg-slate-900/40">
+                <div className="p-8 border-b border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-emerald-500 rounded-xl">
+                      <Receipt className="w-5 h-5 text-white" />
                     </div>
-                    {filteredSearchProducts.length > 0 && (
-                      <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden divide-y divide-white/5">
-                        {filteredSearchProducts.map(p => (
-                          <button 
-                            key={p.id} 
-                            onClick={() => setSelectedProduct(p)}
-                            className="w-full text-left p-5 hover:bg-red-500/10 transition-colors flex items-center justify-between group"
-                          >
-                            <div className="flex items-center gap-4">
-                              <img src={p.image} className="w-10 h-10 rounded-lg object-cover" />
-                              <div>
-                                <p className="font-black text-white text-sm">{p.name}</p>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{p.volume} • {p.category}</p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-black text-emerald-500">Rs. {p.price}</p>
-                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{p.stock} in stock</p>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Current Bill</h2>
                   </div>
-                ) : (
-                  <div className="bg-slate-900/40 border border-emerald-500/20 rounded-3xl p-8 relative animate-in fade-in slide-in-from-top-4">
-                    <button 
-                      onClick={() => setSelectedProduct(null)}
-                      className="absolute top-4 right-4 p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-all"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                    <div className="flex items-center gap-6">
-                      <img src={selectedProduct.image} className="w-20 h-20 rounded-2xl object-cover shadow-2xl" />
-                      <div>
-                        <h4 className="text-2xl font-black text-white tracking-tighter leading-none">{selectedProduct.name}</h4>
-                        <div className="flex items-center gap-3 mt-2">
-                           <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">{selectedProduct.volume}</span>
-                           <span className="w-1 h-1 bg-slate-700 rounded-full" />
-                           <span className="text-[10px] font-black uppercase text-red-500 tracking-widest">{selectedProduct.category}</span>
+                  <button 
+                    onClick={() => setBillItems([])}
+                    className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-red-500 transition-colors"
+                  >
+                    Clear All
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hide min-h-[400px]">
+                  {billItems.map(item => (
+                    <div key={item.id} className="p-5 bg-white/5 rounded-[2rem] border border-white/5 space-y-4 animate-in slide-in-from-right-4">
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0">
+                          <p className="font-black text-white truncate">{item.product.name}</p>
+                          <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{item.product.volume}</p>
+                        </div>
+                        <button onClick={() => removeFromBill(item.id)} className="text-slate-600 hover:text-red-500 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Rate</label>
+                          <div className="relative">
+                            <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-emerald-500" />
+                            <input 
+                              type="number" 
+                              value={item.price} 
+                              onChange={(e) => updateBillItem(item.id, { price: parseInt(e.target.value) || 0 })}
+                              className="w-full bg-slate-950/50 border border-white/10 rounded-xl py-2 pl-8 pr-3 text-white font-bold text-sm outline-none focus:border-red-500 transition-all"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Qty</label>
+                          <div className="flex items-center gap-2 bg-slate-950/50 border border-white/10 rounded-xl p-1">
+                            <button onClick={() => updateBillItem(item.id, { quantity: Math.max(1, item.quantity - 1) })} className="p-1 hover:text-red-500"><Minus className="w-3 h-3" /></button>
+                            <input 
+                              type="number" 
+                              value={item.quantity} 
+                              onChange={(e) => updateBillItem(item.id, { quantity: parseInt(e.target.value) || 1 })}
+                              className="w-full bg-transparent border-none text-center text-white font-black text-sm outline-none"
+                            />
+                            <button onClick={() => updateBillItem(item.id, { quantity: Math.min(item.product.stock, item.quantity + 1) })} className="p-1 hover:text-emerald-500"><Plus className="w-3 h-3" /></button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  ))}
 
-                <form onSubmit={handleCounterSaleSubmit} className="space-y-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Sale Price (Editable)</label>
-                      <div className="relative">
-                        <IndianRupee className="absolute left-5 top-1/2 -translate-y-1/2 text-emerald-500 w-5 h-5" />
-                        <input 
-                          type="number" 
-                          required 
-                          value={customPrice || ''} 
-                          onChange={(e) => setCustomPrice(parseInt(e.target.value) || 0)}
-                          className="w-full bg-slate-900/60 border border-white/10 rounded-2xl py-5 pl-14 pr-5 text-white font-black text-2xl outline-none focus:border-red-500 transition-all"
-                          placeholder="0"
-                        />
-                      </div>
-                      {selectedProduct && customPrice !== selectedProduct.price && (
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-orange-500 animate-pulse">
-                          Custom pricing applied (Catalog: Rs. {selectedProduct.price})
-                        </p>
-                      )}
+                  {billItems.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center opacity-20 py-20">
+                      <ShoppingCart className="w-20 h-20 mb-4" />
+                      <p className="font-black uppercase tracking-widest text-sm">Cart is empty</p>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Dispatch Quantity</label>
-                      <input 
-                        type="number" 
-                        required 
-                        min="1" 
-                        max={selectedProduct?.stock || 9999}
-                        value={saleQty} 
-                        onChange={(e) => setSaleQty(parseInt(e.target.value))} 
-                        className="w-full bg-slate-900/60 border border-white/10 rounded-2xl p-5 text-white font-black text-2xl outline-none focus:border-red-500 transition-all"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="p-8 bg-emerald-500/5 rounded-3xl border border-emerald-500/10 flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Transaction Total</p>
-                      <p className="text-4xl font-black text-emerald-500 tracking-tighter">Rs. {(customPrice * saleQty).toLocaleString()}</p>
-                    </div>
-                    <div className="text-right">
-                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Inventory Post-Sale</p>
-                       <p className="text-xl font-black text-white tracking-tight">{selectedProduct ? selectedProduct.stock - saleQty : '--'} Units</p>
-                    </div>
-                  </div>
+                  )}
+                </div>
 
-                  <button 
-                    type="submit" 
-                    disabled={!selectedProduct || (selectedProduct && saleQty > selectedProduct.stock)}
-                    className="w-full vibrant-gradient text-white font-black py-7 rounded-3xl shadow-2xl hover:scale-[1.02] active:scale-95 transition-all text-2xl uppercase tracking-tighter disabled:opacity-30 disabled:hover:scale-100"
-                  >
-                    {!selectedProduct ? "Select Spirit to Continue" : (saleQty > selectedProduct.stock ? "Insufficient Stock" : "Execute Cash Settlement")}
-                  </button>
-                </form>
+                <div className="p-8 bg-slate-950/50 border-t border-white/5 space-y-6">
+                   <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Total Receivable</p>
+                      <p className="text-4xl font-black text-emerald-500 tracking-tighter">Rs. {billTotal.toLocaleString()}</p>
+                   </div>
+                   
+                   <button 
+                    onClick={handleFinalizeTransaction}
+                    disabled={billItems.length === 0 || isFinalizing}
+                    className="w-full vibrant-gradient text-white font-black py-5 rounded-2xl shadow-2xl hover:scale-[1.02] active:scale-95 transition-all text-xl uppercase tracking-tighter disabled:opacity-30 flex items-center justify-center gap-3"
+                   >
+                     {isFinalizing ? <Loader2 className="w-6 h-6 animate-spin" /> : <ShieldCheck className="w-6 h-6" />}
+                     {isFinalizing ? "Processing..." : "Confirm Settlement"}
+                   </button>
+
+                   {showSuccess === 'transaction-complete' && (
+                     <p className="text-center text-[10px] font-black text-emerald-500 uppercase tracking-widest animate-pulse">
+                       ✓ Inventory Updated Successfully
+                     </p>
+                   )}
+                </div>
               </div>
            </div>
         </div>
