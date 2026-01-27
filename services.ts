@@ -1,3 +1,4 @@
+
 /**
  * Dragon Suppliers Service Layer - Supabase Production Version
  */
@@ -22,13 +23,7 @@ const normalizeToDB = (data: any) => {
     'customerEmail': 'customer_email',
     'productId': 'product_id',
     'productName': 'product_name',
-    'paymentMethod': 'payment_method',
-    'status': 'status',
-    'volume': 'volume',
-    'price': 'price',
-    'stock': 'stock',
-    'image': 'image',
-    'unit': 'unit'
+    'paymentMethod': 'payment_method'
   };
   
   const normalized: any = {};
@@ -43,13 +38,7 @@ const normalizeFromDB = (data: any) => {
   if (!data) return data;
   return {
     ...data,
-    id: data.id,
-    email: data.email,
-    phone: data.phone,
     shopName: data.shop_name || data.shopName,
-    address: data.address,
-    role: data.role,
-    status: data.status,
     createdAt: data.created_at || data.createdAt,
     productId: data.product_id || data.productId,
     productName: data.product_name || data.productName,
@@ -66,14 +55,19 @@ export const SupabaseService = {
         headers: {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
-          'Cache-Control': 'no-cache'
+          'Cache-Control': 'no-cache',
+          'Content-Type': 'application/json'
         }
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error(`Supabase Fetch Error (${table}):`, response.status, errText);
+        return [];
+      }
       const data = await response.json();
       return Array.isArray(data) ? data.map(normalizeFromDB) : [];
     } catch (e) {
-      console.error(`Supabase Fetch Error (${table}):`, e);
+      console.error(`Network error during fetch (${table}):`, e);
       return [];
     }
   },
@@ -84,7 +78,8 @@ export const SupabaseService = {
       const response = await fetch(`${S_URL}/rest/v1/users?email=eq.${email.toLowerCase()}&select=*`, {
         headers: {
           'apikey': S_KEY,
-          'Authorization': `Bearer ${S_KEY}`
+          'Authorization': `Bearer ${S_KEY}`,
+          'Content-Type': 'application/json'
         }
       });
       if (!response.ok) return null;
@@ -96,10 +91,13 @@ export const SupabaseService = {
   },
 
   async upsert(table: string, data: any): Promise<boolean> {
-    if (!SupabaseConfig.isConfigured) return false;
+    if (!SupabaseConfig.isConfigured) {
+      console.warn(`Supabase not configured. Record for ${table} only exists locally.`);
+      return false;
+    }
     try {
       const dbData = normalizeToDB(data);
-      const response = await fetch(`${S_URL}/rest/v1/${table}`, {
+      const response = await fetch(`${S_URL}/rest/v1/${table}?on_conflict=id`, {
         method: 'POST',
         headers: {
           'apikey': S_KEY,
@@ -109,8 +107,16 @@ export const SupabaseService = {
         },
         body: JSON.stringify(dbData)
       });
-      return response.ok;
+      
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error(`Supabase Write Failure (${table}):`, response.status, errText);
+        return false;
+      }
+      console.log(`Successfully synced record to ${table}`);
+      return true;
     } catch (e) {
+      console.error(`Supabase Sync Error (${table}):`, e);
       return false;
     }
   },
@@ -129,8 +135,15 @@ export const SupabaseService = {
         },
         body: JSON.stringify(dbData)
       });
-      return response.ok;
+      
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error(`Supabase Patch Error (${table}):`, response.status, errText);
+        return false;
+      }
+      return true;
     } catch (e) {
+      console.error(`Network error during update (${table}):`, e);
       return false;
     }
   },
@@ -154,7 +167,10 @@ export const SupabaseService = {
 
 export const EmailService = {
   async sendOTP(email: string, otp: string) {
-    if (!B_KEY) return false;
+    if (!B_KEY) {
+      console.warn("Email service not configured. Test Code: ", otp);
+      return true; 
+    }
     try {
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus } from './types';
 import { INITIAL_PRODUCTS, ADMIN_EMAILS } from './constants';
@@ -22,6 +23,8 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [counterSales, setCounterSales] = useState<CounterSale[]>([]);
+  
+  const refreshInterval = useRef<number | null>(null);
 
   const basename = window.location.hostname.includes('vercel.app') ? '/' : (
     window.location.pathname.length > 1 && window.location.pathname.includes('-') 
@@ -29,13 +32,23 @@ const App: React.FC = () => {
       : '/'
   );
 
+  // Removed products.length and users.length dependencies to prevent synchronization loops
   const refreshData = useCallback(async () => {
     try {
+      const fetchSafely = async (table: string) => {
+        try { 
+          return await SupabaseService.fetchTable(table); 
+        } catch (e) { 
+          console.warn(`Fetch failed for ${table}:`, e); 
+          return []; 
+        }
+      };
+
       const [p, u, o, cs] = await Promise.all([
-        SupabaseService.fetchTable('products'),
-        SupabaseService.fetchTable('users'),
-        SupabaseService.fetchTable('orders'),
-        SupabaseService.fetchTable('counter_sales')
+        fetchSafely('products'),
+        fetchSafely('users'),
+        fetchSafely('orders'),
+        fetchSafely('counter_sales')
       ]);
 
       const processedUsers: User[] = u.map((user: User) => {
@@ -45,16 +58,15 @@ const App: React.FC = () => {
         return user;
       });
 
-      if (p.length) setProducts(p);
-      else if (products.length === 0) setProducts(INITIAL_PRODUCTS);
-
+      // Update state if data exists, or fall back to defaults
+      setProducts(p.length > 0 ? p : (products.length === 0 ? INITIAL_PRODUCTS : products));
       setUsers(processedUsers);
       setOrders(o);
       setCounterSales(cs);
     } catch (err) {
       console.error("Critical error during data refresh:", err);
     }
-  }, [products.length]);
+  }, []); // Static callback to prevent infinite loops
 
   useEffect(() => {
     const init = async () => {
@@ -62,6 +74,12 @@ const App: React.FC = () => {
       setLoading(false);
     };
     init();
+    
+    // Refresh every 30 seconds for Admin panel visibility
+    refreshInterval.current = window.setInterval(refreshData, 30000);
+    return () => {
+      if (refreshInterval.current) clearInterval(refreshInterval.current);
+    };
   }, [refreshData]);
 
   useEffect(() => {
@@ -73,7 +91,10 @@ const App: React.FC = () => {
     localStorage.setItem('dragon_auth', JSON.stringify(auth));
   }, [auth]);
 
-  const handleLogout = () => setAuth({ user: null, isAuthenticated: false });
+  const handleLogout = () => {
+    localStorage.removeItem('dragon_auth');
+    setAuth({ user: null, isAuthenticated: false });
+  };
 
   const updateProductStock = async (id: string, newStock: number) => {
     const updated = products.map(p => p.id === id ? { ...p, stock: newStock } : p);
@@ -93,44 +114,39 @@ const App: React.FC = () => {
 
   const placeOrder = async (order: Order) => {
     setOrders(prev => [order, ...prev]);
-    await SupabaseService.upsert('orders', order);
-    
-    for (const item of order.items) {
-      const prod = products.find(p => p.id === item.productId);
-      if (prod) {
-        const newStock = Math.max(0, prod.stock - item.quantity);
-        await SupabaseService.update('products', prod.id, { stock: newStock });
+    const success = await SupabaseService.upsert('orders', order);
+    if (success) {
+      for (const item of order.items) {
+        const prod = products.find(p => p.id === item.productId);
+        if (prod) {
+          const newStock = Math.max(0, prod.stock - item.quantity);
+          await updateProductStock(prod.id, newStock);
+        }
       }
+      await refreshData();
     }
-    await refreshData();
   };
 
   const addCounterSale = async (sale: CounterSale) => {
     setCounterSales(prev => [sale, ...prev]);
-    await SupabaseService.upsert('counter_sales', sale);
-    
-    const prod = products.find(p => p.id === sale.productId);
-    if (prod) {
-      const newStock = Math.max(0, prod.stock - sale.quantity);
-      await SupabaseService.update('products', prod.id, { stock: newStock });
+    const success = await SupabaseService.upsert('counter_sales', sale);
+    if (success) {
+      const prod = products.find(p => p.id === sale.productId);
+      if (prod) {
+        const newStock = Math.max(0, prod.stock - sale.quantity);
+        await updateProductStock(prod.id, newStock);
+      }
+      await refreshData();
     }
-    await refreshData();
   };
 
   const approveUser = async (userId: string) => {
     const success = await SupabaseService.update('users', userId, { status: 'approved' });
     if (success) {
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'approved' as UserStatus } : u));
       await refreshData();
       return true;
-    } else {
-      if (!SupabaseConfig.isConfigured) {
-        // Mock local state update if DB is disconnected
-        setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'approved' as UserStatus } : u));
-        return true;
-      }
-      return false;
     }
+    return false;
   };
 
   if (loading) return (

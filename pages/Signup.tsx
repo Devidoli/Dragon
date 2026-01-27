@@ -15,7 +15,7 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
   const [generatedOtp, setGeneratedOtp] = useState('');
   const [step, setStep] = useState<'details' | 'otp'>('details');
   const [error, setError] = useState('');
-  const [isSending, setIsSending] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const navigate = useNavigate();
 
@@ -36,12 +36,12 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
       return;
     }
     
-    setIsSending(true);
+    setIsProcessing(true);
     setError('');
     const code = Math.floor(1000 + Math.random() * 9000).toString();
     const success = await EmailService.sendOTP(cleanEmail, code);
     
-    setIsSending(false);
+    setIsProcessing(false);
     if (success) {
       setGeneratedOtp(code);
       setStep('otp');
@@ -53,23 +53,35 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.otp === generatedOtp) {
-      const newUser: User = {
-        id: `DRGN-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-        email: formData.email.toLowerCase(),
-        phone: formData.phone,
-        shopName: formData.shopName,
-        address: formData.address,
-        role: 'customer' as UserRole,
-        status: 'pending' as UserStatus,
-        createdAt: new Date().toISOString()
-      };
-      await SupabaseService.upsert('users', newUser);
+    if (formData.otp !== generatedOtp) {
+      setError('Invalid security code.');
+      return;
+    }
+
+    setIsProcessing(true);
+    setError('');
+
+    const newUser: User = {
+      id: `DRGN-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+      email: formData.email.toLowerCase(),
+      phone: formData.phone,
+      shopName: formData.shopName,
+      address: formData.address,
+      role: 'customer' as UserRole,
+      status: 'pending' as UserStatus,
+      createdAt: new Date().toISOString()
+    };
+
+    // CRITICAL: We wait for Supabase to confirm the record is created
+    const dbSuccess = await SupabaseService.upsert('users', newUser);
+    
+    if (dbSuccess) {
       setUsers(prev => [...prev, newUser]);
       setAuth({ user: newUser, isAuthenticated: true });
       navigate('/');
     } else {
-      setError('Invalid security code.');
+      setIsProcessing(false);
+      setError('Database synchronization failed. Registration aborted to prevent data loss. Check your Vercel logs or Supabase RLS settings.');
     }
   };
 
@@ -113,8 +125,8 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
                 </div>
               )}
               
-              <button type="submit" disabled={isSending} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm uppercase tracking-widest transition-all active:scale-[0.98]">
-                {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Verify Information"}
+              <button type="submit" disabled={isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm uppercase tracking-widest transition-all active:scale-[0.98]">
+                {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : "Verify Information"}
               </button>
               
               <div className="text-center pt-6 border-t border-white/5">
@@ -137,16 +149,18 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
                 </div>
               )}
 
-              <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg text-sm uppercase tracking-widest active:scale-[0.98] transition-all">Submit Application</button>
+              <button type="submit" disabled={isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg text-sm uppercase tracking-widest active:scale-[0.98] transition-all">
+                {isProcessing ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Submit Application"}
+              </button>
               
               <div className="flex flex-col gap-4 pt-6 border-t border-white/5 text-center">
                 <button 
                   type="button" 
                   onClick={() => handleNext()} 
-                  disabled={resendCooldown > 0 || isSending}
+                  disabled={resendCooldown > 0 || isProcessing}
                   className="flex items-center justify-center gap-2 text-slate-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isSending ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
                   {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend Code"}
                 </button>
                 <button type="button" onClick={() => setStep('details')} className="text-slate-600 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest underline underline-offset-4">Modify Details</button>
