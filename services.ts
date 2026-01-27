@@ -1,20 +1,20 @@
 /**
  * Dragon Suppliers Service Layer - Enhanced Production Version
- * Features: Automatic case conversion and robust error logging
+ * Features: Robust case conversion and error diagnostics
  */
 
 const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
 
-const S_URL = env.VITE_SUPABASE_URL;
-const S_KEY = env.VITE_SUPABASE_KEY;
-const B_KEY = env.VITE_BREVO_API_KEY;
+const S_URL = env.VITE_SUPABASE_URL || "";
+const S_KEY = env.VITE_SUPABASE_KEY || "";
+const B_KEY = env.VITE_BREVO_API_KEY || "";
 
 export const SupabaseConfig = {
   isConfigured: !!(S_URL && S_KEY),
-  url: S_URL || "NONE",
+  url: S_URL,
 };
 
-// Utility to convert JS camelCase to DB snake_case
+// Robust Camel to Snake converter
 const toSnakeCase = (obj: any): any => {
   if (Array.isArray(obj)) return obj.map(toSnakeCase);
   if (obj !== null && typeof obj === 'object') {
@@ -27,7 +27,7 @@ const toSnakeCase = (obj: any): any => {
   return obj;
 };
 
-// Utility to convert DB snake_case to JS camelCase
+// Robust Snake to Camel converter
 const toCamelCase = (obj: any): any => {
   if (Array.isArray(obj)) return obj.map(toCamelCase);
   if (obj !== null && typeof obj === 'object') {
@@ -48,19 +48,22 @@ export const SupabaseService = {
         headers: {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
-          'Cache-Control': 'no-cache',
-          'Content-Type': 'application/json'
+          'Range': '0-999',
+          'Prefer': 'count=exact'
         }
       });
+      
       if (!response.ok) {
-        const errText = await response.text();
-        console.error(`Supabase Fetch Error (${table}):`, response.status, errText);
+        const err = await response.text();
+        console.error(`DB Fetch Failed [${table}]:`, response.status, err);
         return [];
       }
+      
       const data = await response.json();
+      console.log(`Synced ${data.length} records from ${table}`);
       return Array.isArray(data) ? data.map(toCamelCase) : [];
     } catch (e) {
-      console.error(`Network error during fetch (${table}):`, e);
+      console.error(`Network error syncing ${table}:`, e);
       return [];
     }
   },
@@ -71,11 +74,9 @@ export const SupabaseService = {
       const response = await fetch(`${S_URL}/rest/v1/users?email=eq.${email.toLowerCase()}&select=*`, {
         headers: {
           'apikey': S_KEY,
-          'Authorization': `Bearer ${S_KEY}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${S_KEY}`
         }
       });
-      if (!response.ok) return null;
       const data = await response.json();
       return data && data[0] ? toCamelCase(data[0]) : null;
     } catch (e) {
@@ -84,31 +85,27 @@ export const SupabaseService = {
   },
 
   async upsert(table: string, data: any): Promise<boolean> {
-    if (!SupabaseConfig.isConfigured) {
-      console.warn(`Supabase not configured. Record for ${table} only exists locally.`);
-      return false;
-    }
+    if (!SupabaseConfig.isConfigured) return false;
     try {
       const dbData = toSnakeCase(data);
-      const response = await fetch(`${S_URL}/rest/v1/${table}?on_conflict=id`, {
+      const response = await fetch(`${S_URL}/rest/v1/${table}`, {
         method: 'POST',
         headers: {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
           'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates, return=representation'
+          'Prefer': 'resolution=merge-duplicates, return=minimal'
         },
         body: JSON.stringify(dbData)
       });
       
       if (!response.ok) {
-        const errText = await response.text();
-        console.error(`Supabase Write Failure (${table}):`, response.status, errText);
+        const err = await response.text();
+        console.error(`DB Write Failed [${table}]:`, err);
         return false;
       }
       return true;
     } catch (e) {
-      console.error(`Supabase Sync Error (${table}):`, e);
       return false;
     }
   },
@@ -122,14 +119,11 @@ export const SupabaseService = {
         headers: {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(dbData)
       });
-      
-      if (!response.ok) return false;
-      return true;
+      return response.ok;
     } catch (e) {
       return false;
     }
@@ -167,7 +161,7 @@ export const EmailService = {
           sender: { name: 'Dragon Suppliers', email: 'olidevid203@gmail.com' },
           to: [{ email: email }],
           subject: 'Dragon Suppliers: Verification Code',
-          htmlContent: `<div style="padding:40px;background:#0f172a;color:#fff;border-radius:20px;text-align:center;"><h1>DRAGON</h1><div style="font-size:40px;">${otp}</div></div>`
+          htmlContent: `<h1>${otp}</h1>`
         })
       });
       return response.ok;
