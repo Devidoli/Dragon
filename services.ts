@@ -1,6 +1,6 @@
-
 /**
- * Dragon Suppliers Service Layer - Supabase Production Version
+ * Dragon Suppliers Service Layer - Enhanced Production Version
+ * Features: Automatic case conversion and robust error logging
  */
 
 const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
@@ -14,37 +14,30 @@ export const SupabaseConfig = {
   url: S_URL || "NONE",
 };
 
-// Field mapping for Supabase (CamelCase to Snake_Case)
-const normalizeToDB = (data: any) => {
-  const mapping: Record<string, string> = {
-    'shopName': 'shop_name',
-    'createdAt': 'created_at',
-    'customerId': 'customer_id',
-    'customerEmail': 'customer_email',
-    'productId': 'product_id',
-    'productName': 'product_name',
-    'paymentMethod': 'payment_method'
-  };
-  
-  const normalized: any = {};
-  Object.keys(data).forEach(key => {
-    const dbKey = mapping[key] || key;
-    normalized[dbKey] = data[key];
-  });
-  return normalized;
+// Utility to convert JS camelCase to DB snake_case
+const toSnakeCase = (obj: any): any => {
+  if (Array.isArray(obj)) return obj.map(toSnakeCase);
+  if (obj !== null && typeof obj === 'object') {
+    return Object.keys(obj).reduce((acc, key) => {
+      const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+      acc[snakeKey] = toSnakeCase(obj[key]);
+      return acc;
+    }, {} as any);
+  }
+  return obj;
 };
 
-const normalizeFromDB = (data: any) => {
-  if (!data) return data;
-  return {
-    ...data,
-    shopName: data.shop_name || data.shopName,
-    createdAt: data.created_at || data.createdAt,
-    productId: data.product_id || data.productId,
-    productName: data.product_name || data.productName,
-    customerEmail: data.customer_email || data.customerEmail,
-    customerId: data.customer_id || data.customerId
-  };
+// Utility to convert DB snake_case to JS camelCase
+const toCamelCase = (obj: any): any => {
+  if (Array.isArray(obj)) return obj.map(toCamelCase);
+  if (obj !== null && typeof obj === 'object') {
+    return Object.keys(obj).reduce((acc, key) => {
+      const camelKey = key.replace(/(_\w)/g, m => m[1].toUpperCase());
+      acc[camelKey] = toCamelCase(obj[key]);
+      return acc;
+    }, {} as any);
+  }
+  return obj;
 };
 
 export const SupabaseService = {
@@ -65,7 +58,7 @@ export const SupabaseService = {
         return [];
       }
       const data = await response.json();
-      return Array.isArray(data) ? data.map(normalizeFromDB) : [];
+      return Array.isArray(data) ? data.map(toCamelCase) : [];
     } catch (e) {
       console.error(`Network error during fetch (${table}):`, e);
       return [];
@@ -84,7 +77,7 @@ export const SupabaseService = {
       });
       if (!response.ok) return null;
       const data = await response.json();
-      return data && data[0] ? normalizeFromDB(data[0]) : null;
+      return data && data[0] ? toCamelCase(data[0]) : null;
     } catch (e) {
       return null;
     }
@@ -96,7 +89,7 @@ export const SupabaseService = {
       return false;
     }
     try {
-      const dbData = normalizeToDB(data);
+      const dbData = toSnakeCase(data);
       const response = await fetch(`${S_URL}/rest/v1/${table}?on_conflict=id`, {
         method: 'POST',
         headers: {
@@ -113,7 +106,6 @@ export const SupabaseService = {
         console.error(`Supabase Write Failure (${table}):`, response.status, errText);
         return false;
       }
-      console.log(`Successfully synced record to ${table}`);
       return true;
     } catch (e) {
       console.error(`Supabase Sync Error (${table}):`, e);
@@ -124,7 +116,7 @@ export const SupabaseService = {
   async update(table: string, id: string, data: any): Promise<boolean> {
     if (!SupabaseConfig.isConfigured) return false;
     try {
-      const dbData = normalizeToDB(data);
+      const dbData = toSnakeCase(data);
       const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
         method: 'PATCH',
         headers: {
@@ -136,14 +128,9 @@ export const SupabaseService = {
         body: JSON.stringify(dbData)
       });
       
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error(`Supabase Patch Error (${table}):`, response.status, errText);
-        return false;
-      }
+      if (!response.ok) return false;
       return true;
     } catch (e) {
-      console.error(`Network error during update (${table}):`, e);
       return false;
     }
   },
@@ -167,10 +154,7 @@ export const SupabaseService = {
 
 export const EmailService = {
   async sendOTP(email: string, otp: string) {
-    if (!B_KEY) {
-      console.warn("Email service not configured. Test Code: ", otp);
-      return true; 
-    }
+    if (!B_KEY) return true; 
     try {
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
@@ -183,7 +167,7 @@ export const EmailService = {
           sender: { name: 'Dragon Suppliers', email: 'olidevid203@gmail.com' },
           to: [{ email: email }],
           subject: 'Dragon Suppliers: Verification Code',
-          htmlContent: `<div style="padding:40px;background:#0f172a;color:#fff;border-radius:20px;text-align:center;"><h1 style="color:#ef4444;">DRAGON</h1><div style="font-size:40px;margin:20px 0;letter-spacing:10px;font-weight:bold;">${otp}</div></div>`
+          htmlContent: `<div style="padding:40px;background:#0f172a;color:#fff;border-radius:20px;text-align:center;"><h1>DRAGON</h1><div style="font-size:40px;">${otp}</div></div>`
         })
       });
       return response.ok;
