@@ -1,89 +1,154 @@
-
 /**
- * Dragon Suppliers Service Layer - MongoDB Atlas Data API Version
+ * Dragon Suppliers Service Layer - Supabase Production Version
  */
 
 const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
 
-const M_KEY = env.VITE_MONGODB_API_KEY;
-const M_URL = env.VITE_MONGODB_URL; // Base URL: https://.../endpoint/data/v1
-const M_CLUSTER = env.VITE_MONGODB_CLUSTER || 'Cluster0';
-const M_DB = env.VITE_MONGODB_DATABASE || 'dragon_suppliers';
+const S_URL = env.VITE_SUPABASE_URL;
+const S_KEY = env.VITE_SUPABASE_KEY;
 const B_KEY = env.VITE_BREVO_API_KEY;
 
-// Fix: Renamed to SupabaseConfig for compatibility with existing imports in App.tsx
 export const SupabaseConfig = {
-  isConfigured: !!(M_KEY && M_URL),
-  database: M_DB,
+  isConfigured: !!(S_URL && S_KEY),
+  url: S_URL || "NONE",
 };
 
-const mongoRequest = async (action: string, collection: string, body: any) => {
-  // Fix: Updated reference from DBConfig to SupabaseConfig
-  if (!SupabaseConfig.isConfigured) return null;
-  try {
-    const response = await fetch(`${M_URL}/action/${action}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Request-Headers': '*',
-        'api-key': M_KEY,
-      },
-      body: JSON.stringify({
-        dataSource: M_CLUSTER,
-        database: M_DB,
-        collection: collection,
-        ...body
-      })
-    });
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`MongoDB ${action} error:`, err);
-      return null;
+// Field mapping for Supabase (CamelCase to Snake_Case)
+const normalizeToDB = (data: any) => {
+  const mapping: Record<string, string> = {
+    'shopName': 'shop_name',
+    'createdAt': 'created_at',
+    'customerId': 'customer_id',
+    'customerEmail': 'customer_email',
+    'productId': 'product_id',
+    'productName': 'product_name',
+    'paymentMethod': 'payment_method',
+    'status': 'status',
+    'volume': 'volume',
+    'price': 'price',
+    'stock': 'stock',
+    'image': 'image',
+    'unit': 'unit'
+  };
+  
+  const normalized: any = {};
+  Object.keys(data).forEach(key => {
+    const dbKey = mapping[key] || key;
+    normalized[dbKey] = data[key];
+  });
+  return normalized;
+};
+
+const normalizeFromDB = (data: any) => {
+  if (!data) return data;
+  return {
+    ...data,
+    id: data.id,
+    email: data.email,
+    phone: data.phone,
+    shopName: data.shop_name || data.shopName,
+    address: data.address,
+    role: data.role,
+    status: data.status,
+    createdAt: data.created_at || data.createdAt,
+    productId: data.product_id || data.productId,
+    productName: data.product_name || data.productName,
+    customerEmail: data.customer_email || data.customerEmail,
+    customerId: data.customer_id || data.customerId
+  };
+};
+
+export const SupabaseService = {
+  async fetchTable(table: string) {
+    if (!SupabaseConfig.isConfigured) return [];
+    try {
+      const response = await fetch(`${S_URL}/rest/v1/${table}?select=*`, {
+        headers: {
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`,
+          'Cache-Control': 'no-cache'
+        }
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data) ? data.map(normalizeFromDB) : [];
+    } catch (e) {
+      console.error(`Supabase Fetch Error (${table}):`, e);
+      return [];
     }
-    return await response.json();
-  } catch (e) {
-    console.error(`MongoDB ${action} network error:`, e);
-    return null;
-  }
-};
-
-export const SupabaseService = { // Keeping name for compatibility with App.tsx imports
-  async fetchTable(collection: string) {
-    const result = await mongoRequest('find', collection, { filter: {} });
-    return result?.documents || [];
   },
 
   async fetchUserByEmail(email: string) {
-    const result = await mongoRequest('findOne', 'users', { 
-      filter: { email: email.toLowerCase() } 
-    });
-    return result?.document || null;
+    if (!SupabaseConfig.isConfigured) return null;
+    try {
+      const response = await fetch(`${S_URL}/rest/v1/users?email=eq.${email.toLowerCase()}&select=*`, {
+        headers: {
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`
+        }
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data && data[0] ? normalizeFromDB(data[0]) : null;
+    } catch (e) {
+      return null;
+    }
   },
 
-  async upsert(collection: string, data: any): Promise<boolean> {
-    // MongoDB Atlas Data API doesn't have a direct upsert action in one simple call like Supabase
-    // We use updateOne with upsert: true
-    const result = await mongoRequest('updateOne', collection, {
-      filter: { id: data.id },
-      update: { $set: data },
-      upsert: true
-    });
-    return !!result;
+  async upsert(table: string, data: any): Promise<boolean> {
+    if (!SupabaseConfig.isConfigured) return false;
+    try {
+      const dbData = normalizeToDB(data);
+      const response = await fetch(`${S_URL}/rest/v1/${table}`, {
+        method: 'POST',
+        headers: {
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates, return=representation'
+        },
+        body: JSON.stringify(dbData)
+      });
+      return response.ok;
+    } catch (e) {
+      return false;
+    }
   },
 
-  async update(collection: string, id: string, data: any): Promise<boolean> {
-    const result = await mongoRequest('updateOne', collection, {
-      filter: { id: id },
-      update: { $set: data }
-    });
-    return result && result.matchedCount > 0 || result?.modifiedCount > 0;
+  async update(table: string, id: string, data: any): Promise<boolean> {
+    if (!SupabaseConfig.isConfigured) return false;
+    try {
+      const dbData = normalizeToDB(data);
+      const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(dbData)
+      });
+      return response.ok;
+    } catch (e) {
+      return false;
+    }
   },
 
-  async delete(collection: string, id: string): Promise<boolean> {
-    const result = await mongoRequest('deleteOne', collection, {
-      filter: { id: id }
-    });
-    return !!result;
+  async delete(table: string, id: string): Promise<boolean> {
+    if (!SupabaseConfig.isConfigured) return false;
+    try {
+      const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`
+        }
+      });
+      return response.ok;
+    } catch (e) {
+      return false;
+    }
   }
 };
 
