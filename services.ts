@@ -1,6 +1,5 @@
 /**
- * Dragon Suppliers Service Layer - Enhanced Production Version
- * Features: Robust case conversion and error diagnostics
+ * Dragon Suppliers Service Layer - Diagnostic Version
  */
 
 const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
@@ -14,7 +13,7 @@ export const SupabaseConfig = {
   url: S_URL,
 };
 
-// Robust Camel to Snake converter
+// JS camelCase to DB snake_case
 const toSnakeCase = (obj: any): any => {
   if (Array.isArray(obj)) return obj.map(toSnakeCase);
   if (obj !== null && typeof obj === 'object') {
@@ -27,7 +26,7 @@ const toSnakeCase = (obj: any): any => {
   return obj;
 };
 
-// Robust Snake to Camel converter
+// DB snake_case to JS camelCase
 const toCamelCase = (obj: any): any => {
   if (Array.isArray(obj)) return obj.map(toCamelCase);
   if (obj !== null && typeof obj === 'object') {
@@ -42,32 +41,29 @@ const toCamelCase = (obj: any): any => {
 
 export const SupabaseService = {
   async fetchTable(table: string) {
-    if (!SupabaseConfig.isConfigured) return [];
+    if (!SupabaseConfig.isConfigured) return { data: [], error: "Supabase URL/Key missing in environment." };
     try {
       const response = await fetch(`${S_URL}/rest/v1/${table}?select=*`, {
         headers: {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
-          'Range': '0-999',
           'Prefer': 'count=exact'
         }
       });
       
       if (!response.ok) {
-        const err = await response.text();
-        console.error(`DB Fetch Failed [${table}]:`, response.status, err);
-        return [];
+        const errText = await response.text();
+        return { data: [], error: `DB Error ${response.status}: ${errText}` };
       }
       
       const data = await response.json();
-      console.log(`Synced ${data.length} records from ${table}`);
-      return Array.isArray(data) ? data.map(toCamelCase) : [];
-    } catch (e) {
-      console.error(`Network error syncing ${table}:`, e);
-      return [];
+      return { data: Array.isArray(data) ? data.map(toCamelCase) : [], error: null };
+    } catch (e: any) {
+      return { data: [], error: `Network Failure: ${e.message}` };
     }
   },
 
+  // Fixed missing fetchUserByEmail method for Login.tsx
   async fetchUserByEmail(email: string) {
     if (!SupabaseConfig.isConfigured) return null;
     try {
@@ -77,36 +73,39 @@ export const SupabaseService = {
           'Authorization': `Bearer ${S_KEY}`
         }
       });
+      
+      if (!response.ok) return null;
+      
       const data = await response.json();
-      return data && data[0] ? toCamelCase(data[0]) : null;
+      return Array.isArray(data) && data.length > 0 ? toCamelCase(data[0]) : null;
     } catch (e) {
       return null;
     }
   },
 
-  async upsert(table: string, data: any): Promise<boolean> {
-    if (!SupabaseConfig.isConfigured) return false;
+  async upsert(table: string, data: any): Promise<{ success: boolean; error: string | null }> {
+    if (!SupabaseConfig.isConfigured) return { success: false, error: "Configuration missing." };
     try {
       const dbData = toSnakeCase(data);
-      const response = await fetch(`${S_URL}/rest/v1/${table}`, {
+      // PostgREST upsert requires on_conflict query param
+      const response = await fetch(`${S_URL}/rest/v1/${table}?on_conflict=id`, {
         method: 'POST',
         headers: {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
           'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates, return=minimal'
+          'Prefer': 'resolution=merge-duplicates, return=representation'
         },
         body: JSON.stringify(dbData)
       });
       
       if (!response.ok) {
-        const err = await response.text();
-        console.error(`DB Write Failed [${table}]:`, err);
-        return false;
+        const errText = await response.text();
+        return { success: false, error: errText };
       }
-      return true;
-    } catch (e) {
-      return false;
+      return { success: true, error: null };
+    } catch (e: any) {
+      return { success: false, error: e.message };
     }
   },
 
@@ -122,22 +121,6 @@ export const SupabaseService = {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(dbData)
-      });
-      return response.ok;
-    } catch (e) {
-      return false;
-    }
-  },
-
-  async delete(table: string, id: string): Promise<boolean> {
-    if (!SupabaseConfig.isConfigured) return false;
-    try {
-      const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
-        method: 'DELETE',
-        headers: {
-          'apikey': S_KEY,
-          'Authorization': `Bearer ${S_KEY}`
-        }
       });
       return response.ok;
     } catch (e) {
@@ -160,7 +143,7 @@ export const EmailService = {
         body: JSON.stringify({
           sender: { name: 'Dragon Suppliers', email: 'olidevid203@gmail.com' },
           to: [{ email: email }],
-          subject: 'Dragon Suppliers: Verification Code',
+          subject: 'Dragon Suppliers Code',
           htmlContent: `<h1>${otp}</h1>`
         })
       });

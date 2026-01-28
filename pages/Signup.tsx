@@ -16,16 +16,7 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
   const [step, setStep] = useState<'details' | 'otp'>('details');
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    let timer: number;
-    if (resendCooldown > 0) {
-      timer = window.setInterval(() => setResendCooldown(prev => prev - 1), 1000);
-    }
-    return () => clearInterval(timer);
-  }, [resendCooldown]);
 
   const handleNext = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -45,9 +36,8 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
     if (success) {
       setGeneratedOtp(code);
       setStep('otp');
-      setResendCooldown(30);
     } else {
-      setError('Failed to send verification code. Please check your internet or email settings.');
+      setError('Failed to send verification code.');
     }
   };
 
@@ -72,50 +62,36 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
       createdAt: new Date().toISOString()
     };
 
-    // CRITICAL: We wait for Supabase to confirm the record is created
-    const dbSuccess = await SupabaseService.upsert('users', newUser);
+    const dbRes = await SupabaseService.upsert('users', newUser);
     
-    if (dbSuccess) {
+    if (dbRes.success) {
       setUsers(prev => [...prev, newUser]);
       setAuth({ user: newUser, isAuthenticated: true });
       navigate('/');
     } else {
       setIsProcessing(false);
-      setError('Database synchronization failed. Registration aborted to prevent data loss. Check your Vercel logs or Supabase RLS settings.');
+      setError(`Database Error: ${dbRes.error}. (Tip: Ensure table 'users' exists and RLS is disabled)`);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] flex items-center justify-center p-6 font-sans">
+    <div className="min-h-screen bg-[#020617] flex items-center justify-center p-6">
       <div className="w-full max-w-[440px]">
         <div className="text-center mb-10 space-y-4">
-          <div className="inline-flex p-4 bg-red-600 rounded-2xl shadow-lg mb-2">
+          <div className="inline-flex p-4 bg-red-600 rounded-2xl shadow-lg">
             <Flame className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-black text-white tracking-tight uppercase">Enroll Merchant</h1>
-          <p className="text-xs font-bold uppercase tracking-[0.4em] text-slate-500">B2B Application Terminal</p>
+          <h1 className="text-3xl font-black text-white uppercase tracking-tight">Enroll Merchant</h1>
         </div>
 
         <div className="glass p-10 rounded-[2.5rem] shadow-2xl border border-white/10 relative">
           {step === 'details' ? (
             <form onSubmit={handleNext} className="space-y-5">
               <div className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Business Name</label>
-                  <input required value={formData.shopName} onChange={(e) => setFormData({ ...formData, shopName: e.target.value })} placeholder="Enter Shop/Store Name" className="w-full bg-slate-900/60 border border-white/10 rounded-xl py-3.5 px-4 focus:border-red-500 outline-none font-medium text-white text-base" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Merchant Email</label>
-                  <input required type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="merchant@example.com" className="w-full bg-slate-900/60 border border-white/10 rounded-xl py-3.5 px-4 focus:border-red-500 outline-none font-medium text-white text-base" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Phone Number</label>
-                  <input required type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="+977-98..." className="w-full bg-slate-900/60 border border-white/10 rounded-xl py-3.5 px-4 focus:border-red-500 outline-none font-medium text-white text-base" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Full Address</label>
-                  <input required value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} placeholder="City, Location" className="w-full bg-slate-900/60 border border-white/10 rounded-xl py-3.5 px-4 focus:border-red-500 outline-none font-medium text-white text-base" />
-                </div>
+                <input required value={formData.shopName} onChange={(e) => setFormData({ ...formData, shopName: e.target.value })} placeholder="Business Name" className="w-full bg-slate-900 border border-white/10 rounded-xl py-3.5 px-4 text-white" />
+                <input required type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="Email" className="w-full bg-slate-900 border border-white/10 rounded-xl py-3.5 px-4 text-white" />
+                <input required type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="Phone Number" className="w-full bg-slate-900 border border-white/10 rounded-xl py-3.5 px-4 text-white" />
+                <input required value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} placeholder="Shop Address" className="w-full bg-slate-900 border border-white/10 rounded-xl py-3.5 px-4 text-white" />
               </div>
               
               {error && (
@@ -125,22 +101,22 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
                 </div>
               )}
               
-              <button type="submit" disabled={isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm uppercase tracking-widest transition-all active:scale-[0.98]">
+              <button type="submit" disabled={isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 uppercase tracking-widest transition-all">
                 {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : "Verify Information"}
               </button>
               
-              <div className="text-center pt-6 border-t border-white/5">
-                <Link to="/login" className="text-slate-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest">Already have an account? Login</Link>
+              <div className="text-center pt-6">
+                <Link to="/login" className="text-slate-500 hover:text-white text-xs font-bold uppercase tracking-widest">Login Instead</Link>
               </div>
             </form>
           ) : (
             <form onSubmit={handleSignup} className="space-y-6">
               <div className="text-center space-y-2">
                 <ShieldCheck className="w-10 h-10 text-red-500 mx-auto mb-2" />
-                <h3 className="text-xl font-bold text-white uppercase">Security Check</h3>
-                <p className="text-slate-500 text-xs font-bold">Verification code for {formData.email}</p>
+                <h3 className="text-xl font-bold text-white uppercase">Verification</h3>
+                <p className="text-slate-500 text-xs font-bold">Sent to {formData.email}</p>
               </div>
-              <input required maxLength={4} value={formData.otp} onChange={(e) => setFormData({ ...formData, otp: e.target.value })} placeholder="0000" className="w-full bg-slate-900/80 border border-white/10 rounded-xl py-4 text-center text-4xl font-black tracking-[0.5em] focus:border-red-500 text-white outline-none" />
+              <input required maxLength={4} value={formData.otp} onChange={(e) => setFormData({ ...formData, otp: e.target.value })} placeholder="0000" className="w-full bg-slate-900 border border-white/10 rounded-xl py-4 text-center text-4xl font-black text-white" />
               
               {error && (
                 <div className="flex items-start gap-3 text-red-400 text-xs font-bold bg-red-500/5 p-4 rounded-xl border border-red-500/20">
@@ -149,22 +125,9 @@ const Signup: React.FC<SignupProps> = ({ setAuth, setUsers, users }) => {
                 </div>
               )}
 
-              <button type="submit" disabled={isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg text-sm uppercase tracking-widest active:scale-[0.98] transition-all">
-                {isProcessing ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Submit Application"}
+              <button type="submit" disabled={isProcessing} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl uppercase tracking-widest">
+                {isProcessing ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Complete Registration"}
               </button>
-              
-              <div className="flex flex-col gap-4 pt-6 border-t border-white/5 text-center">
-                <button 
-                  type="button" 
-                  onClick={() => handleNext()} 
-                  disabled={resendCooldown > 0 || isProcessing}
-                  className="flex items-center justify-center gap-2 text-slate-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
-                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend Code"}
-                </button>
-                <button type="button" onClick={() => setStep('details')} className="text-slate-600 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest underline underline-offset-4">Modify Details</button>
-              </div>
             </form>
           )}
         </div>
