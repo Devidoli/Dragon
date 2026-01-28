@@ -59,34 +59,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-10 pb-24 relative">
-      {/* DB DIAGNOSTIC BAR */}
-      <div className={`flex flex-col md:flex-row md:items-center justify-between border p-4 rounded-3xl gap-4 ${dbError ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-900/60 border-white/5'}`}>
-        <div className="flex items-center gap-4">
-          <div className={`p-2 rounded-xl ${dbError ? 'bg-red-500/20' : 'bg-emerald-500/10'}`}>
-            <Database className={`w-5 h-5 ${dbError ? 'text-red-500' : 'text-emerald-500'}`} />
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Database Engine</p>
-            <p className={`text-xs font-bold ${dbError ? 'text-red-500' : 'text-white'}`}>
-              {dbError ? `ERROR: ${dbError}` : (SupabaseConfig.isConfigured ? 'CONNECTED TO SUPABASE' : 'OFFLINE MODE')}
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-8 pr-4">
-          <div className="text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">User Sync</p>
-            <p className="text-xl font-black text-white leading-none mt-1">{users.length}</p>
-          </div>
-          <button 
-            onClick={handleManualRefresh}
-            className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl transition-all"
-          >
-            <RefreshCcw className={`w-5 h-5 text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </div>
-
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-8">
         <div className="flex flex-col sm:flex-row sm:items-center gap-6">
           <div className="p-4 bg-red-600 rounded-[1.5rem] shadow-xl">
@@ -109,6 +81,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <tab.icon className="w-4 h-4" /> {tab.label}
             </button>
           ))}
+          <button 
+            onClick={handleManualRefresh}
+            className="flex items-center gap-2 px-6 py-4 rounded-2xl font-bold transition-all text-[10px] uppercase tracking-widest text-slate-400 hover:text-red-500"
+            title="Manual Sync"
+          >
+            <RefreshCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} /> Sync
+          </button>
         </div>
       </div>
 
@@ -235,7 +214,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <AlertCircle className="w-8 h-8" />
                   <h3 className="font-black text-xl uppercase tracking-tighter">Database Setup SQL</h3>
                </div>
-               <p className="text-sm text-slate-400">If your merchant list is empty after registration, you MUST run this SQL in your Supabase SQL Editor to create the table properly:</p>
+               <p className="text-sm text-slate-400">Run this SQL in your Supabase SQL Editor if data is not appearing:</p>
                <pre className="p-6 bg-black rounded-2xl text-[10px] text-slate-300 font-mono overflow-x-auto whitespace-pre">
 {`CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,

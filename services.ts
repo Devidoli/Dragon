@@ -1,5 +1,5 @@
 /**
- * Dragon Suppliers Service Layer - Diagnostic Version
+ * Dragon Suppliers Service Layer - Production Version
  */
 
 const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
@@ -63,7 +63,6 @@ export const SupabaseService = {
     }
   },
 
-  // Fixed missing fetchUserByEmail method for Login.tsx
   async fetchUserByEmail(email: string) {
     if (!SupabaseConfig.isConfigured) return null;
     try {
@@ -87,7 +86,6 @@ export const SupabaseService = {
     if (!SupabaseConfig.isConfigured) return { success: false, error: "Configuration missing." };
     try {
       const dbData = toSnakeCase(data);
-      // PostgREST upsert requires on_conflict query param
       const response = await fetch(`${S_URL}/rest/v1/${table}?on_conflict=id`, {
         method: 'POST',
         headers: {
@@ -133,6 +131,28 @@ export const EmailService = {
   async sendOTP(email: string, otp: string) {
     if (!B_KEY) return true; 
     try {
+      const htmlContent = `
+        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+          <div style="background-color: #dc2626; padding: 40px 20px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 28px; text-transform: uppercase; letter-spacing: 2px; font-weight: 900;">Dragon Suppliers</h1>
+            <p style="color: #fca5a5; margin: 10px 0 0 0; font-size: 12px; font-weight: bold; letter-spacing: 3px; text-transform: uppercase;">Official Merchant Network</p>
+          </div>
+          <div style="padding: 40px; text-align: center; color: #1e293b;">
+            <h2 style="font-size: 20px; margin-bottom: 20px; font-weight: 800; text-transform: uppercase;">Security Verification</h2>
+            <p style="font-size: 16px; line-height: 1.6; color: #64748b;">A request was made to access your merchant portal. Use the code below to securely sign in.</p>
+            
+            <div style="margin: 40px auto; padding: 30px; background-color: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 16px; display: inline-block;">
+              <span style="font-size: 56px; font-weight: 900; color: #dc2626; letter-spacing: 15px; font-family: monospace;">${otp}</span>
+            </div>
+            
+            <p style="font-size: 14px; color: #94a3b8; margin-top: 30px;">This code will expire shortly. If you did not request this, please ignore this email.</p>
+          </div>
+          <div style="background-color: #f1f5f9; padding: 20px; text-align: center;">
+            <p style="font-size: 11px; color: #94a3b8; margin: 0; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">&copy; ${new Date().getFullYear()} Dragon Suppliers Nepal. Premium Distribution Hub.</p>
+          </div>
+        </div>
+      `;
+
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
@@ -143,8 +163,8 @@ export const EmailService = {
         body: JSON.stringify({
           sender: { name: 'Dragon Suppliers', email: 'olidevid203@gmail.com' },
           to: [{ email: email }],
-          subject: 'Dragon Suppliers Code',
-          htmlContent: `<h1>${otp}</h1>`
+          subject: `${otp} is your Dragon Suppliers access code`,
+          htmlContent: htmlContent
         })
       });
       return response.ok;
