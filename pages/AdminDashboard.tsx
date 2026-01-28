@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { User, Product, Order, CounterSale, UserStatus } from '../types';
 import { 
   Users, Package, TrendingUp, ArrowUpRight, Flame, 
-  ShoppingCart, Clock, RefreshCcw, Loader2, Check, 
-  Database, AlertCircle, ShieldCheck, Activity, Terminal, Code
+  Clock, RefreshCcw, Loader2, Check, 
+  Database, AlertCircle, ShieldCheck, Activity
 } from 'lucide-react';
 import { SupabaseConfig } from '../services';
 
@@ -31,7 +31,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRefresh,
   dbError
 }) => {
-  const [activeTab, setActiveTab] = useState<'stats' | 'users' | 'inventory' | 'counter' | 'debug'>('users');
+  const [activeTab, setActiveTab] = useState<'stats' | 'users' | 'inventory'>('users');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
@@ -72,10 +72,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="flex bg-white dark:bg-slate-800/50 backdrop-blur p-2 rounded-[1.75rem] border border-slate-200 dark:border-slate-700 shadow-xl overflow-x-auto">
           {[
             { id: 'stats', label: 'Analytics', icon: TrendingUp },
-            { id: 'counter', label: 'POS', icon: ShoppingCart },
             { id: 'users', label: 'Merchants', icon: Users },
-            { id: 'inventory', label: 'Vault', icon: Package },
-            { id: 'debug', label: 'Console', icon: Terminal }
+            { id: 'inventory', label: 'Vault', icon: Package }
           ].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-4 rounded-2xl font-bold transition-all text-[10px] uppercase tracking-widest whitespace-nowrap ${activeTab === tab.id ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-red-500'}`}>
               <tab.icon className="w-4 h-4" /> {tab.label}
@@ -172,70 +170,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {activeTab === 'debug' && (
-        <div className="space-y-8 animate-in zoom-in-95 duration-500">
-           <div className="flex items-center gap-4">
-              <Code className="w-8 h-8 text-blue-500" />
-              <h2 className="text-3xl font-black dark:text-white uppercase tracking-tighter">Diagnostic Console</h2>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-               <div className="bg-slate-900 border border-white/5 p-8 rounded-[2rem] space-y-4">
-                  <h3 className="text-emerald-500 font-black text-xs uppercase tracking-[0.2em]">Table Verification</h3>
-                  <div className="space-y-3">
-                     {[
-                       { name: 'users', count: users.length },
-                       { name: 'products', count: products.length },
-                       { name: 'orders', count: orders.length },
-                       { name: 'counter_sales', count: counterSales.length }
-                     ].map(tbl => (
-                       <div key={tbl.name} className="flex items-center justify-between p-3 bg-black/40 rounded-xl">
-                          <span className="text-xs font-bold text-slate-400">{tbl.name}</span>
-                          <span className={`text-xs font-black ${tbl.count > 0 ? 'text-emerald-500' : 'text-slate-600'}`}>
-                            {tbl.count} Records
-                          </span>
-                       </div>
-                     ))}
-                  </div>
-               </div>
-
-               <div className="bg-slate-900 border border-white/5 p-8 rounded-[2rem] space-y-4">
-                  <h3 className="text-blue-500 font-black text-xs uppercase tracking-[0.2em]">Raw API Feedback</h3>
-                  <div className="p-4 bg-black rounded-xl font-mono text-[10px] text-blue-300 break-all h-32 overflow-y-auto">
-                    {dbError ? `[FAIL] ${dbError}` : `[OK] All tables synced successfully at ${new Date().toLocaleTimeString()}`}
-                    <br /><br />
-                    Endpoint: {SupabaseConfig.url}/rest/v1/...
-                  </div>
-               </div>
-            </div>
-
-            <div className="bg-red-900/10 border border-red-500/20 p-10 rounded-[2.5rem] space-y-6">
-               <div className="flex items-center gap-4 text-red-500">
-                  <AlertCircle className="w-8 h-8" />
-                  <h3 className="font-black text-xl uppercase tracking-tighter">Database Setup SQL</h3>
-               </div>
-               <p className="text-sm text-slate-400">Run this SQL in your Supabase SQL Editor if data is not appearing:</p>
-               <pre className="p-6 bg-black rounded-2xl text-[10px] text-slate-300 font-mono overflow-x-auto whitespace-pre">
-{`CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  phone TEXT,
-  shop_name TEXT,
-  address TEXT,
-  role TEXT DEFAULT 'customer',
-  status TEXT DEFAULT 'pending',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE users DISABLE ROW LEVEL SECURITY;`}
-               </pre>
-            </div>
-        </div>
-      )}
-
-      {(activeTab === 'stats' || activeTab === 'counter' || activeTab === 'inventory') && (
+      {(activeTab === 'stats' || activeTab === 'inventory') && (
         <div className="py-24 text-center text-slate-500 font-black uppercase tracking-[0.3em] opacity-20 italic">
-          Terminal Area Ready for Extension
+          Section details coming soon in next update.
         </div>
       )}
     </div>
