@@ -1,14 +1,15 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus } from './types';
 import { INITIAL_PRODUCTS, ADMIN_EMAILS } from './constants';
-import { SupabaseService, SupabaseConfig } from './services';
+import { SupabaseService } from './services';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Shop from './pages/Shop';
 import AdminDashboard from './pages/AdminDashboard';
 import CustomerDetails from './pages/CustomerDetails';
-import { LogOut, LayoutDashboard, Flame, Sun, Moon, Loader2, ShieldCheck, DatabaseZap } from 'lucide-react';
+import { LogOut, Flame, Sun, Moon, Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -39,7 +40,6 @@ const App: React.FC = () => {
       const oRes = await SupabaseService.fetchTable('orders');
       const cRes = await SupabaseService.fetchTable('counter_sales');
 
-      // Capture errors for Admin UI
       if (uRes.error) setDbError(uRes.error);
       else setDbError(null);
 
@@ -51,7 +51,6 @@ const App: React.FC = () => {
         return user;
       });
 
-      // If DB is empty or fails, ensure at least the logged in admin is "known"
       if (processedUsers.length === 0 && auth.user?.role === 'admin') {
          processedUsers.push(auth.user);
       }
@@ -100,11 +99,12 @@ const App: React.FC = () => {
   const addProduct = async (p: Product) => {
     setProducts(prev => [...prev, p]);
     await SupabaseService.upsert('products', p);
+    await refreshData();
   };
 
   const deleteProduct = async (id: string) => {
     setProducts(prev => prev.filter(p => p.id !== id));
-    // Implementation for delete needed in services or just use standard update
+    await SupabaseService.delete('products', id);
   };
 
   const placeOrder = async (order: Order) => {
@@ -133,6 +133,11 @@ const App: React.FC = () => {
       }
       await refreshData();
     }
+  };
+
+  const deleteCounterSale = async (id: string) => {
+    setCounterSales(prev => prev.filter(s => s.id !== id));
+    await SupabaseService.delete('counter_sales', id);
   };
 
   const approveUser = async (userId: string) => {
@@ -191,7 +196,7 @@ const App: React.FC = () => {
             <Route path="/login" element={auth.isAuthenticated ? <Navigate to="/" /> : <Login setAuth={setAuth} users={users} />} />
             <Route path="/signup" element={auth.isAuthenticated ? <Navigate to="/" /> : <Signup setAuth={setAuth} setUsers={setUsers} users={users} />} />
             <Route path="/" element={auth.isAuthenticated ? (auth.user?.role === 'admin' ? <Navigate to="/admin" /> : <Shop user={auth.user!} products={products} placeOrder={placeOrder} orders={orders} />) : <Navigate to="/login" />} />
-            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} addCounterSale={addCounterSale} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
+            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
             <Route path="/admin/customer/:id" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <CustomerDetails users={users} orders={orders} /> : <Navigate to="/login" />} />
           </Routes>
         </main>

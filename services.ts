@@ -1,3 +1,4 @@
+
 /**
  * Dragon Suppliers Service Layer - Production Version
  */
@@ -119,6 +120,22 @@ export const SupabaseService = {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(dbData)
+      });
+      return response.ok;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  async delete(table: string, id: string): Promise<boolean> {
+    if (!SupabaseConfig.isConfigured) return false;
+    try {
+      const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`
+        }
       });
       return response.ok;
     } catch (e) {
