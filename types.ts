@@ -32,7 +32,7 @@ export interface OrderItem {
   volume?: string;
 }
 
-export type OrderStatus = 'pending' | 'packed' | 'dispatched' | 'delivered';
+export type OrderStatus = 'pending' | 'packed' | 'dispatched' | 'delivered' | 'cancelled';
 
 export interface Order {
   id: string;

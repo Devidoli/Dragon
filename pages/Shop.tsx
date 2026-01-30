@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { User, Product, Order, OrderItem, OrderStatus } from '../types';
 import { CATEGORIES } from '../constants';
@@ -9,9 +10,10 @@ interface ShopProps {
   products: Product[];
   orders: Order[];
   placeOrder: (order: Order) => void;
+  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
 }
 
-const Shop: React.FC<ShopProps> = ({ user, products, placeOrder, orders }) => {
+const Shop: React.FC<ShopProps> = ({ user, products, placeOrder, orders, updateOrderStatus }) => {
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<OrderItem[]>([]);
@@ -92,6 +94,13 @@ const Shop: React.FC<ShopProps> = ({ user, products, placeOrder, orders }) => {
     packed: { label: 'PACKED', color: 'text-blue-500', icon: Boxes, step: 1 },
     dispatched: { label: 'DISPATCHED', color: 'text-orange-500', icon: Truck, step: 2 },
     delivered: { label: 'DELIVERED', color: 'text-emerald-500', icon: CheckCircle2, step: 3 },
+    cancelled: { label: 'CANCELLED', color: 'text-red-500', icon: X, step: -1 },
+  };
+
+  const handleCancelMyOrder = (id: string) => {
+    if (window.confirm("Do you want to cancel this supply request? Stock will be released back to the warehouse.")) {
+      updateOrderStatus(id, 'cancelled');
+    }
   };
 
   return (
@@ -264,44 +273,63 @@ const Shop: React.FC<ShopProps> = ({ user, products, placeOrder, orders }) => {
                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Value</p>
                        <p className="text-3xl font-black text-red-600 tracking-tighter leading-none">Rs. {order.total.toLocaleString()}</p>
                     </div>
-                    <button 
-                      onClick={() => { setLastOrder(order); setShowInvoiceModal(true); }}
-                      className="p-4 bg-slate-50 dark:bg-slate-800 text-red-600 rounded-2xl hover:scale-110 active:scale-95 transition-all shadow-xl"
-                    >
-                      <FileText className="w-6 h-6" />
-                    </button>
+                    <div className="flex items-center gap-3">
+                        {order.status === 'pending' && (
+                            <button 
+                                onClick={() => handleCancelMyOrder(order.id)}
+                                className="p-4 bg-red-500/10 text-red-500 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-xl"
+                                title="Cancel Request"
+                            >
+                                <X className="w-6 h-6" />
+                            </button>
+                        )}
+                        <button 
+                            onClick={() => { setLastOrder(order); setShowInvoiceModal(true); }}
+                            className="p-4 bg-slate-50 dark:bg-slate-800 text-red-600 rounded-2xl hover:scale-110 active:scale-95 transition-all shadow-xl"
+                        >
+                            <FileText className="w-6 h-6" />
+                        </button>
+                    </div>
                   </div>
                 </div>
 
                 {/* Condition Stepper */}
-                <div className="relative pt-12 pb-8 px-4">
-                   <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-100 dark:bg-slate-800 -translate-y-1/2 rounded-full" />
-                   <div 
-                      className="absolute top-1/2 left-0 h-1 bg-red-600 -translate-y-1/2 transition-all duration-1000 rounded-full" 
-                      style={{ width: `${(currentStatus.step / 3) * 100}%` }}
-                   />
-                   
-                   <div className="relative flex justify-between">
-                      {['pending', 'packed', 'dispatched', 'delivered'].map((s, idx) => {
-                        const stepInfo = statusInfo[s as OrderStatus];
-                        const isActive = idx <= currentStatus.step;
-                        const isCurrent = idx === currentStatus.step;
-                        return (
-                          <div key={s} className="flex flex-col items-center gap-4">
-                             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-500 z-10 border-4 ${
-                               isActive ? 'bg-red-600 border-white dark:border-slate-900 shadow-xl scale-110' : 'bg-slate-100 dark:bg-slate-800 border-white dark:border-slate-900 text-slate-400'
-                             }`}>
-                               <stepInfo.icon className={`w-6 h-6 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                             </div>
-                             <div className="text-center">
-                               <p className={`text-[9px] font-black uppercase tracking-widest ${isActive ? 'text-red-600' : 'text-slate-500'}`}>{stepInfo.label}</p>
-                               {isCurrent && <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 animate-pulse">In Progress</p>}
-                             </div>
-                          </div>
-                        );
-                      })}
-                   </div>
-                </div>
+                {order.status !== 'cancelled' ? (
+                    <div className="relative pt-12 pb-8 px-4">
+                    <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-100 dark:bg-slate-800 -translate-y-1/2 rounded-full" />
+                    <div 
+                        className="absolute top-1/2 left-0 h-1 bg-red-600 -translate-y-1/2 transition-all duration-1000 rounded-full" 
+                        style={{ width: `${(currentStatus.step / 3) * 100}%` }}
+                    />
+                    
+                    <div className="relative flex justify-between">
+                        {['pending', 'packed', 'dispatched', 'delivered'].map((s, idx) => {
+                            const stepInfo = statusInfo[s as OrderStatus];
+                            const isActive = idx <= currentStatus.step;
+                            const isCurrent = idx === currentStatus.step;
+                            return (
+                            <div key={s} className="flex flex-col items-center gap-4">
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-500 z-10 border-4 ${
+                                isActive ? 'bg-red-600 border-white dark:border-slate-900 shadow-xl scale-110' : 'bg-slate-100 dark:bg-slate-800 border-white dark:border-slate-900 text-slate-400'
+                                }`}>
+                                <stepInfo.icon className={`w-6 h-6 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                                </div>
+                                <div className="text-center">
+                                <p className={`text-[9px] font-black uppercase tracking-widest ${isActive ? 'text-red-600' : 'text-slate-500'}`}>{stepInfo.label}</p>
+                                {isCurrent && <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 animate-pulse">In Progress</p>}
+                                </div>
+                            </div>
+                            );
+                        })}
+                    </div>
+                    </div>
+                ) : (
+                    <div className="py-12 flex flex-col items-center justify-center bg-red-500/5 rounded-[2rem] border border-dashed border-red-500/20">
+                         <X className="w-12 h-12 text-red-500 mb-2" />
+                         <p className="font-black text-red-500 uppercase tracking-widest">Order Voided</p>
+                         <p className="text-slate-500 text-xs font-bold uppercase mt-1">Stock returned to Vault</p>
+                    </div>
+                )}
 
                 <div className="pt-6 border-t dark:border-white/5">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Batch Contents</p>

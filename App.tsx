@@ -123,6 +123,19 @@ const App: React.FC = () => {
   };
 
   const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
+    const currentOrder = orders.find(o => o.id === orderId);
+    
+    // Auto-restock logic if order is cancelled
+    if (status === 'cancelled' && currentOrder && currentOrder.status !== 'cancelled') {
+        for (const item of currentOrder.items) {
+            const prod = products.find(p => p.id === item.productId);
+            if (prod) {
+                const newStock = prod.stock + item.quantity;
+                await updateProductStock(prod.id, newStock);
+            }
+        }
+    }
+
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
     await SupabaseService.update('orders', orderId, { status });
   };

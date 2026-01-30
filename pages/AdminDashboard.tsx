@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { User, Product, Order, CounterSale, OrderStatus } from '../types';
@@ -214,6 +215,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     packed: 'bg-blue-500/10 text-blue-500',
     dispatched: 'bg-orange-500/10 text-orange-500',
     delivered: 'bg-emerald-500/10 text-emerald-500',
+    cancelled: 'bg-red-500/10 text-red-500',
   };
 
   const filteredOrders = useMemo(() => {
@@ -223,6 +225,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     return sorted;
   }, [orders, orderFilter]);
+
+  const handleCancelOrder = (id: string) => {
+    if (window.confirm("Are you sure you want to cancel this order? Stock will be returned to inventory.")) {
+      updateOrderStatus(id, 'cancelled');
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-12 pb-32">
@@ -329,7 +337,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             
             {/* Status Filter Bar */}
             <div className="flex bg-slate-100 dark:bg-slate-800/50 p-1.5 rounded-2xl border dark:border-white/5 overflow-x-auto scrollbar-hide">
-              {(['all', 'pending', 'packed', 'dispatched', 'delivered'] as const).map(f => (
+              {(['all', 'pending', 'packed', 'dispatched', 'delivered', 'cancelled'] as const).map(f => (
                 <button 
                   key={f}
                   onClick={() => setOrderFilter(f)}
@@ -349,7 +357,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <th className="px-10 py-6">Merchant Shop</th>
                   <th className="px-10 py-6">Fulfillment Total</th>
                   <th className="px-10 py-6">Current Status</th>
-                  <th className="px-10 py-6 text-right">Action</th>
+                  <th className="px-10 py-6 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y dark:divide-white/5">
@@ -383,16 +391,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <option value="packed" className="bg-slate-900 text-blue-500">PACKED</option>
                           <option value="dispatched" className="bg-slate-900 text-orange-500">DISPATCHED</option>
                           <option value="delivered" className="bg-slate-900 text-emerald-500">DELIVERED</option>
+                          <option value="cancelled" className="bg-slate-900 text-red-500">CANCELLED</option>
                         </select>
                       </td>
                       <td className="px-10 py-8 text-right">
-                        <button 
-                          onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                          className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:text-red-500 transition-all flex items-center gap-2 ml-auto"
-                        >
-                          <Boxes className="w-5 h-5" />
-                          <span className="text-[10px] font-black uppercase tracking-widest">View Items</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                            <button 
+                                onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                                className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:text-red-500 transition-all flex items-center gap-2"
+                            >
+                                <Boxes className="w-5 h-5" />
+                                <span className="text-[10px] font-black uppercase tracking-widest">Items</span>
+                            </button>
+                            {order.status !== 'cancelled' && (
+                                <button 
+                                    onClick={() => handleCancelOrder(order.id)}
+                                    className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center gap-2"
+                                    title="Cancel Order"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            )}
+                        </div>
                       </td>
                     </tr>
                     {expandedOrderId === order.id && (
