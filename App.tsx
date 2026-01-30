@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus } from './types';
+import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus, OrderStatus } from './types';
 import { INITIAL_PRODUCTS, ADMIN_EMAILS } from './constants';
 import { SupabaseService } from './services';
 import Login from './pages/Login';
@@ -122,6 +122,11 @@ const App: React.FC = () => {
     }
   };
 
+  const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+    await SupabaseService.update('orders', orderId, { status });
+  };
+
   const addCounterSale = async (sale: CounterSale) => {
     setCounterSales(prev => [sale, ...prev]);
     const res = await SupabaseService.upsert('counter_sales', sale);
@@ -196,7 +201,7 @@ const App: React.FC = () => {
             <Route path="/login" element={auth.isAuthenticated ? <Navigate to="/" /> : <Login setAuth={setAuth} users={users} />} />
             <Route path="/signup" element={auth.isAuthenticated ? <Navigate to="/" /> : <Signup setAuth={setAuth} setUsers={setUsers} users={users} />} />
             <Route path="/" element={auth.isAuthenticated ? (auth.user?.role === 'admin' ? <Navigate to="/admin" /> : <Shop user={auth.user!} products={products} placeOrder={placeOrder} orders={orders} />) : <Navigate to="/login" />} />
-            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
+            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} updateOrderStatus={updateOrderStatus} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
             <Route path="/admin/customer/:id" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <CustomerDetails users={users} orders={orders} /> : <Navigate to="/login" />} />
           </Routes>
         </main>

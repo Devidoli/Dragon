@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { User, Product, Order, CounterSale } from '../types';
+import { User, Product, Order, CounterSale, OrderStatus } from '../types';
 import { 
   Users, Package, TrendingUp, ArrowUpRight, Flame, 
   ShoppingCart, Clock, RefreshCcw, Loader2, Check, 
   Plus, Minus, Trash2, LayoutGrid, Search, 
   DollarSign, Activity, X, Upload, ChevronRight, Download, Eraser,
-  FileText, History, CalendarDays
+  FileText, History, CalendarDays, Truck, Boxes, ClipboardList, Filter
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -21,6 +21,7 @@ interface AdminDashboardProps {
   updateStock: (id: string, qty: number) => void;
   addCounterSale: (sale: CounterSale) => void;
   deleteCounterSale: (id: string) => void;
+  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   onRefresh?: () => void;
   dbError?: string | null;
 }
@@ -36,12 +37,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   updateStock,
   addCounterSale,
   deleteCounterSale,
+  updateOrderStatus,
   onRefresh
 }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'stats' | 'users' | 'inventory' | 'counter' | 'ledger'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'users' | 'inventory' | 'counter' | 'ledger' | 'orders'>('stats');
+  const [orderFilter, setOrderFilter] = useState<OrderStatus | 'all'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // POS State
   const [posSearch, setPosSearch] = useState('');
@@ -112,7 +116,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const sorted = [...counterSales].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     sorted.forEach(sale => {
-      // Format: "18 February"
       const dateKey = new Date(sale.createdAt).toLocaleDateString('en-GB', { 
         day: 'numeric', 
         month: 'long' 
@@ -156,7 +159,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     
     if (confirmation) {
       setIsRefreshing(true);
-      // We iterate and delete each record. In a real scenario, a batch delete API would be better.
       for (const sale of counterSales) {
         await deleteCounterSale(sale.id);
       }
@@ -207,6 +209,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setNewProd({ name: '', category: 'Whisky', price: '', stock: '', volume: 'Full (750ml)', image: '' });
   };
 
+  const statusColors: Record<OrderStatus, string> = {
+    pending: 'bg-yellow-500/10 text-yellow-500',
+    packed: 'bg-blue-500/10 text-blue-500',
+    dispatched: 'bg-orange-500/10 text-orange-500',
+    delivered: 'bg-emerald-500/10 text-emerald-500',
+  };
+
+  const filteredOrders = useMemo(() => {
+    let sorted = [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    if (orderFilter !== 'all') {
+      sorted = sorted.filter(o => o.status === orderFilter);
+    }
+    return sorted;
+  }, [orders, orderFilter]);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-12 pb-32">
       {/* Navigation Header */}
@@ -223,6 +240,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="flex bg-white dark:bg-slate-800/50 backdrop-blur p-2 rounded-[1.75rem] border border-slate-200 dark:border-slate-700 shadow-xl overflow-x-auto">
           {[
             { id: 'stats', label: 'Analytics', icon: TrendingUp },
+            { id: 'orders', label: 'B2B Orders', icon: ClipboardList },
             { id: 'counter', label: 'POS Terminal', icon: ShoppingCart },
             { id: 'ledger', label: 'History', icon: CalendarDays },
             { id: 'users', label: 'Merchants', icon: Users },
@@ -287,10 +305,141 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <h3 className="text-3xl font-black text-white leading-tight tracking-tighter uppercase">Channel Mix</h3>
                 <p className="text-red-200 text-xs font-bold leading-relaxed">Direct counter sales account for {((totalCounter / (totalRevenue || 1)) * 100).toFixed(1)}% of your revenue.</p>
               </div>
-              <button onClick={() => setActiveTab('ledger')} className="mt-8 bg-white text-red-600 font-black px-6 py-4 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-2">
-                Review History <ArrowUpRight className="w-4 h-4" />
+              <button onClick={() => setActiveTab('orders')} className="mt-8 bg-white text-red-600 font-black px-6 py-4 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-2">
+                Manage B2B Orders <ArrowUpRight className="w-4 h-4" />
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Orders Management View */}
+      {activeTab === 'orders' && (
+        <div className="space-y-8 animate-in slide-in-from-bottom-10 duration-500">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-red-600 rounded-2xl shadow-lg">
+                <ClipboardList className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-3xl font-black dark:text-white uppercase tracking-tighter">B2B Supply Orders</h2>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Dispatch Queue</p>
+              </div>
+            </div>
+            
+            {/* Status Filter Bar */}
+            <div className="flex bg-slate-100 dark:bg-slate-800/50 p-1.5 rounded-2xl border dark:border-white/5 overflow-x-auto scrollbar-hide">
+              {(['all', 'pending', 'packed', 'dispatched', 'delivered'] as const).map(f => (
+                <button 
+                  key={f}
+                  onClick={() => setOrderFilter(f)}
+                  className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${orderFilter === f ? 'bg-white dark:bg-slate-700 text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 dark:bg-slate-950/50">
+                <tr className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">
+                  <th className="px-10 py-6">Order ID & Date</th>
+                  <th className="px-10 py-6">Merchant Shop</th>
+                  <th className="px-10 py-6">Fulfillment Total</th>
+                  <th className="px-10 py-6">Current Status</th>
+                  <th className="px-10 py-6 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y dark:divide-white/5">
+                {filteredOrders.map(order => (
+                  <React.Fragment key={order.id}>
+                    <tr className={`hover:bg-slate-50 dark:hover:bg-white/5 transition-all ${expandedOrderId === order.id ? 'bg-slate-50 dark:bg-white/5' : ''}`}>
+                      <td className="px-10 py-8">
+                        <div className="flex items-center gap-3">
+                          {order.status === 'pending' && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />}
+                          <div>
+                            <p className="font-black dark:text-white text-lg tracking-tight">#{order.id.split('-').pop()}</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase">{new Date(order.createdAt).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-10 py-8">
+                        <p className="font-black dark:text-white">{order.shopName}</p>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">{order.customerEmail}</p>
+                      </td>
+                      <td className="px-10 py-8">
+                        <p className="text-xl font-black text-red-600 tracking-tighter">Rs. {order.total.toLocaleString()}</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">COD Payment</p>
+                      </td>
+                      <td className="px-10 py-8">
+                        <select 
+                          value={order.status}
+                          onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
+                          className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-none outline-none cursor-pointer shadow-sm ${statusColors[order.status]}`}
+                        >
+                          <option value="pending" className="bg-slate-900 text-yellow-500">PENDING</option>
+                          <option value="packed" className="bg-slate-900 text-blue-500">PACKED</option>
+                          <option value="dispatched" className="bg-slate-900 text-orange-500">DISPATCHED</option>
+                          <option value="delivered" className="bg-slate-900 text-emerald-500">DELIVERED</option>
+                        </select>
+                      </td>
+                      <td className="px-10 py-8 text-right">
+                        <button 
+                          onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                          className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:text-red-500 transition-all flex items-center gap-2 ml-auto"
+                        >
+                          <Boxes className="w-5 h-5" />
+                          <span className="text-[10px] font-black uppercase tracking-widest">View Items</span>
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedOrderId === order.id && (
+                      <tr className="bg-slate-100/30 dark:bg-slate-950/20">
+                        <td colSpan={5} className="px-10 py-8">
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in slide-in-from-top-4 duration-300">
+                            {order.items.map((item, idx) => {
+                              const product = products.find(p => p.id === item.productId);
+                              return (
+                                <div key={idx} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-white/5 flex items-center gap-4 shadow-lg hover:border-red-500/30 transition-all">
+                                  <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl overflow-hidden flex-shrink-0">
+                                    {product?.image ? (
+                                      <img src={product.image} className="w-full h-full object-cover" alt="" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center">
+                                        <Package className="w-6 h-6 text-slate-300" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="font-black dark:text-white text-sm leading-tight">{item.name}</p>
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{item.volume || '750ml'}</p>
+                                    <p className="text-[10px] font-black text-red-600 mt-1 uppercase">Order Qty: {item.quantity}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="font-black dark:text-white text-xs">Rs. {item.price.toLocaleString()}</p>
+                                    <p className="text-[9px] text-slate-400 font-bold">Total: Rs. {(item.price * item.quantity).toLocaleString()}</p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+                {filteredOrders.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-32 text-center">
+                      <ClipboardList className="w-20 h-20 text-slate-800 mx-auto mb-4 opacity-20" />
+                      <p className="text-slate-500 font-black uppercase tracking-[0.4em] opacity-40">No orders match this filter</p>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -325,7 +474,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="space-y-12">
-            {/* Fix: Added explicit type assertion to Object.entries to ensure 'sales' is correctly inferred as CounterSale[] */}
             {(Object.entries(groupedSalesByDate) as [string, CounterSale[]][]).map(([dateLabel, sales]) => (
               <div key={dateLabel} className="space-y-6">
                 <div className="flex items-center gap-6">

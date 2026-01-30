@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { User, Product, Order, OrderItem } from '../types';
+import { User, Product, Order, OrderItem, OrderStatus } from '../types';
 import { CATEGORIES } from '../constants';
-import { ShoppingCart, Package, Search, Plus, Minus, X, AlertCircle, CheckCircle2, FileText, Flame } from 'lucide-react';
+import { ShoppingCart, Package, Search, Plus, Minus, X, AlertCircle, CheckCircle2, FileText, Flame, ClipboardList, Truck, Boxes, Clock, ChevronRight } from 'lucide-react';
 import Invoice from '../components/Invoice';
 
 interface ShopProps {
@@ -19,6 +19,7 @@ const Shop: React.FC<ShopProps> = ({ user, products, placeOrder, orders }) => {
   const [isOrdered, setIsOrdered] = useState(false);
   const [lastOrder, setLastOrder] = useState<Order | null>(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [showMyOrders, setShowMyOrders] = useState(false);
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
@@ -82,6 +83,17 @@ const Shop: React.FC<ShopProps> = ({ user, products, placeOrder, orders }) => {
     setTimeout(() => setIsOrdered(false), 5000);
   };
 
+  const myOrders = useMemo(() => {
+    return orders.filter(o => o.customerId === user.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [orders, user.id]);
+
+  const statusInfo: Record<OrderStatus, { label: string, color: string, icon: any, step: number }> = {
+    pending: { label: 'PENDING', color: 'text-yellow-500', icon: Clock, step: 0 },
+    packed: { label: 'PACKED', color: 'text-blue-500', icon: Boxes, step: 1 },
+    dispatched: { label: 'DISPATCHED', color: 'text-orange-500', icon: Truck, step: 2 },
+    delivered: { label: 'DELIVERED', color: 'text-emerald-500', icon: CheckCircle2, step: 3 },
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 pb-32">
       {user.status === 'pending' && (
@@ -94,126 +106,233 @@ const Shop: React.FC<ShopProps> = ({ user, products, placeOrder, orders }) => {
         </div>
       )}
 
-      {isOrdered && lastOrder && (
-        <div className="mb-8 p-8 bg-green-500/10 border-2 border-green-500/30 rounded-[2.5rem] flex flex-col md:flex-row items-center justify-between gap-6 animate-in slide-in-from-top duration-700 shadow-2xl">
-          <div className="flex items-center gap-6">
-            <div className="p-4 bg-green-500 rounded-2xl shadow-lg">
-              <CheckCircle2 className="w-8 h-8 text-white" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-black text-green-500 tracking-tighter">Dispatch Confirmed!</h3>
-              <p className="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-widest text-xs">Batch #{lastOrder.id} is pending delivery.</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => setShowInvoiceModal(true)}
-            className="flex items-center gap-3 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 px-8 py-4 rounded-2xl transition-all border-2 border-slate-200 dark:border-slate-700 shadow-xl hover:scale-105 active:scale-95"
-          >
-            <FileText className="w-6 h-6 text-red-500" />
-            <span className="font-black dark:text-white uppercase tracking-widest text-sm">Download Invoice</span>
-          </button>
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl font-black dark:text-white uppercase tracking-tighter">Merchant Hub</h1>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Supply & Inventory Terminal</p>
         </div>
-      )}
-
-      <div className="flex flex-col gap-8 mb-16">
-        <div className="flex flex-col md:flex-row gap-8 items-center justify-between">
-          <div className="flex flex-wrap gap-3 items-center w-full md:w-auto overflow-x-auto pb-4 scrollbar-hide">
-            {CATEGORIES.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setFilter(cat)}
-                className={`px-10 py-4 rounded-[1.75rem] font-black transition-all shadow-xl text-sm whitespace-nowrap border-2 ${
-                  filter === cat 
-                    ? 'vibrant-gradient text-white border-transparent scale-110 shadow-red-500/40 z-10' 
-                    : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-transparent hover:border-slate-200 dark:hover:border-slate-700'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-          
-          <div className="relative w-full md:w-96 group">
-            <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-400 group-focus-within:text-red-600 transition-colors" />
-            <input
-              type="text"
-              placeholder="Search spirits inventory..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-white dark:bg-slate-800 border-2 dark:border-slate-800 rounded-[2rem] py-4 pl-16 pr-8 focus:ring-8 focus:ring-red-500/5 focus:border-red-500 outline-none transition-all font-black dark:text-white shadow-2xl"
-            />
-          </div>
-        </div>
+        <button 
+          onClick={() => setShowMyOrders(!showMyOrders)}
+          className={`flex items-center gap-3 px-8 py-4 rounded-2xl transition-all font-black text-xs uppercase tracking-widest shadow-xl border-2 ${showMyOrders ? 'bg-red-600 text-white border-transparent' : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-transparent hover:border-red-500'}`}
+        >
+          {showMyOrders ? <ShoppingCart className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
+          {showMyOrders ? 'Return to Catalog' : 'Track My Orders'}
+        </button>
       </div>
 
-      <div className="space-y-24 mb-32">
-        {(Object.entries(groupedProducts) as [string, Product[]][]).map(([category, items]) => (
-          <div key={category} className="space-y-10 animate-in fade-in slide-in-from-bottom-8">
-            <div className="flex items-center gap-6">
-              <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter flex items-center gap-3">
-                {category} <span className="text-red-600 font-black">.</span>
-              </h2>
-              <div className="h-1 flex-1 bg-slate-200 dark:bg-slate-800/50 rounded-full" />
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] bg-slate-100 dark:bg-slate-800 px-5 py-2 rounded-full border dark:border-white/5">
-                {items.length} Batch SKUs
-              </span>
+      {!showMyOrders ? (
+        <>
+          {isOrdered && lastOrder && (
+            <div className="mb-8 p-8 bg-green-500/10 border-2 border-green-500/30 rounded-[2.5rem] flex flex-col md:flex-row items-center justify-between gap-6 animate-in slide-in-from-top duration-700 shadow-2xl">
+              <div className="flex items-center gap-6">
+                <div className="p-4 bg-green-500 rounded-2xl shadow-lg">
+                  <CheckCircle2 className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-green-500 tracking-tighter">Dispatch Confirmed!</h3>
+                  <p className="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-widest text-xs">Batch #{lastOrder.id.split('-').pop()} is pending delivery.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowInvoiceModal(true)}
+                className="flex items-center gap-3 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 px-8 py-4 rounded-2xl transition-all border-2 border-slate-200 dark:border-slate-700 shadow-xl hover:scale-105 active:scale-95"
+              >
+                <FileText className="w-6 h-6 text-red-500" />
+                <span className="font-black dark:text-white uppercase tracking-widest text-sm">Download Invoice</span>
+              </button>
             </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
-              {items.map(product => (
-                <div key={product.id} className="group bg-white dark:bg-slate-800 rounded-[3rem] overflow-hidden border border-slate-100 dark:border-white/5 hover:border-red-500 dark:hover:border-red-500/50 transition-all hover:shadow-[0_40px_80px_-20px_rgba(239,68,68,0.2)] hover:-translate-y-4 flex flex-col h-full shadow-xl">
-                  <div className="relative aspect-square overflow-hidden bg-slate-100 dark:bg-slate-900/50">
-                    <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-125 transition-transform duration-1000" />
-                    <div className="absolute top-6 right-6 px-4 py-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-2xl text-[10px] font-black uppercase tracking-widest text-red-600 border border-red-500/20 shadow-xl">
-                      {product.category}
+          )}
+
+          <div className="flex flex-col gap-8 mb-16">
+            <div className="flex flex-col md:flex-row gap-8 items-center justify-between">
+              <div className="flex flex-wrap gap-3 items-center w-full md:w-auto overflow-x-auto pb-4 scrollbar-hide">
+                {CATEGORIES.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setFilter(cat)}
+                    className={`px-10 py-4 rounded-[1.75rem] font-black transition-all shadow-xl text-sm whitespace-nowrap border-2 ${
+                      filter === cat 
+                        ? 'vibrant-gradient text-white border-transparent scale-110 shadow-red-500/40 z-10' 
+                        : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-transparent hover:border-slate-200 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              
+              <div className="relative w-full md:w-96 group">
+                <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-400 group-focus-within:text-red-600 transition-colors" />
+                <input
+                  type="text"
+                  placeholder="Search spirits inventory..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-800 border-2 dark:border-slate-800 rounded-[2rem] py-4 pl-16 pr-8 focus:ring-8 focus:ring-red-500/5 focus:border-red-500 outline-none transition-all font-black dark:text-white shadow-2xl"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-24 mb-32">
+            {(Object.entries(groupedProducts) as [string, Product[]][]).map(([category, items]) => (
+              <div key={category} className="space-y-10 animate-in fade-in slide-in-from-bottom-8">
+                <div className="flex items-center gap-6">
+                  <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter flex items-center gap-3">
+                    {category} <span className="text-red-600 font-black">.</span>
+                  </h2>
+                  <div className="h-1 flex-1 bg-slate-200 dark:bg-slate-800/50 rounded-full" />
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] bg-slate-100 dark:bg-slate-800 px-5 py-2 rounded-full border dark:border-white/5">
+                    {items.length} Batch SKUs
+                  </span>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
+                  {items.map(product => (
+                    <div key={product.id} className="group bg-white dark:bg-slate-800 rounded-[3rem] overflow-hidden border border-slate-100 dark:border-white/5 hover:border-red-500 dark:hover:border-red-500/50 transition-all hover:shadow-[0_40px_80px_-20px_rgba(239,68,68,0.2)] hover:-translate-y-4 flex flex-col h-full shadow-xl">
+                      <div className="relative aspect-square overflow-hidden bg-slate-100 dark:bg-slate-900/50">
+                        <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-125 transition-transform duration-1000" />
+                        <div className="absolute top-6 right-6 px-4 py-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-2xl text-[10px] font-black uppercase tracking-widest text-red-600 border border-red-500/20 shadow-xl">
+                          {product.category}
+                        </div>
+                      </div>
+                      <div className="p-8 space-y-6 flex flex-col flex-1">
+                        <div className="space-y-1">
+                          <h3 className="font-black text-2xl text-slate-900 dark:text-white group-hover:text-red-600 transition-colors line-clamp-1 tracking-tight">{product.name}</h3>
+                          <div className="flex items-center gap-3">
+                            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">{product.volume}</p>
+                            <span className="text-slate-300 dark:text-slate-700">•</span>
+                            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">{product.unit}</p>
+                          </div>
+                        </div>
+                        <div className="mt-auto flex items-center justify-between pt-4 border-t dark:border-white/5">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Cost</span>
+                            <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter">Rs. {product.price.toLocaleString()}</span>
+                          </div>
+                          <div className={`px-4 py-2 rounded-2xl font-black text-[10px] uppercase tracking-widest ${product.stock > 10 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
+                            {product.stock} Units
+                          </div>
+                        </div>
+                        <button
+                          disabled={user.status !== 'approved' || product.stock === 0}
+                          onClick={() => addToCart(product)}
+                          className={`w-full py-5 rounded-[2rem] font-black flex items-center justify-center gap-3 transition-all text-lg shadow-2xl ${
+                            user.status === 'approved' && product.stock > 0
+                              ? 'vibrant-gradient text-white active:scale-95 hover:shadow-red-500/50' 
+                              : 'bg-slate-100 dark:bg-slate-900 text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                          }`}
+                        >
+                          <Plus className="w-6 h-6" /> Add to Batch
+                        </button>
+                      </div>
                     </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {Object.keys(groupedProducts).length === 0 && (
+              <div className="text-center py-48 glass rounded-[4rem] border-dashed border-4 border-slate-200 dark:border-slate-800 shadow-inner">
+                <Package className="w-24 h-24 text-slate-300 dark:text-slate-800 mx-auto mb-8 animate-bounce" />
+                <h3 className="text-3xl font-black text-slate-400 uppercase tracking-widest">Zero Vault Matches.</h3>
+                <p className="text-slate-500 font-bold mt-2 italic">Try a broader spirit description</p>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="space-y-10 animate-in slide-in-from-bottom-10 duration-500 pb-32">
+          {myOrders.map(order => {
+            const currentStatus = statusInfo[order.status];
+            return (
+              <div key={order.id} className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl space-y-10">
+                <div className="flex flex-col md:flex-row justify-between gap-8">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-4">
+                      <h3 className="text-2xl font-black dark:text-white tracking-tighter uppercase">Supply Batch #{order.id.split('-').pop()}</h3>
+                      <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-50 dark:bg-slate-800 ${currentStatus.color}`}>
+                        {currentStatus.label}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.2em]">
+                      Initiated: {new Date(order.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
                   </div>
-                  <div className="p-8 space-y-6 flex flex-col flex-1">
-                    <div className="space-y-1">
-                      <h3 className="font-black text-2xl text-slate-900 dark:text-white group-hover:text-red-600 transition-colors line-clamp-1 tracking-tight">{product.name}</h3>
-                      <div className="flex items-center gap-3">
-                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">{product.volume}</p>
-                        <span className="text-slate-300 dark:text-slate-700">•</span>
-                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">{product.unit}</p>
-                      </div>
+                  <div className="flex items-center gap-6">
+                    <div className="text-right">
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Value</p>
+                       <p className="text-3xl font-black text-red-600 tracking-tighter leading-none">Rs. {order.total.toLocaleString()}</p>
                     </div>
-                    <div className="mt-auto flex items-center justify-between pt-4 border-t dark:border-white/5">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Cost</span>
-                        <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter">Rs. {product.price.toLocaleString()}</span>
-                      </div>
-                      <div className={`px-4 py-2 rounded-2xl font-black text-[10px] uppercase tracking-widest ${product.stock > 10 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
-                        {product.stock} Units
-                      </div>
-                    </div>
-                    <button
-                      disabled={user.status !== 'approved' || product.stock === 0}
-                      onClick={() => addToCart(product)}
-                      className={`w-full py-5 rounded-[2rem] font-black flex items-center justify-center gap-3 transition-all text-lg shadow-2xl ${
-                        user.status === 'approved' && product.stock > 0
-                          ? 'vibrant-gradient text-white active:scale-95 hover:shadow-red-500/50' 
-                          : 'bg-slate-100 dark:bg-slate-900 text-slate-300 dark:text-slate-700 cursor-not-allowed'
-                      }`}
+                    <button 
+                      onClick={() => { setLastOrder(order); setShowInvoiceModal(true); }}
+                      className="p-4 bg-slate-50 dark:bg-slate-800 text-red-600 rounded-2xl hover:scale-110 active:scale-95 transition-all shadow-xl"
                     >
-                      <Plus className="w-6 h-6" /> Add to Batch
+                      <FileText className="w-6 h-6" />
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        ))}
 
-        {Object.keys(groupedProducts).length === 0 && (
-          <div className="text-center py-48 glass rounded-[4rem] border-dashed border-4 border-slate-200 dark:border-slate-800 shadow-inner">
-            <Package className="w-24 h-24 text-slate-300 dark:text-slate-800 mx-auto mb-8 animate-bounce" />
-            <h3 className="text-3xl font-black text-slate-400 uppercase tracking-widest">Zero Vault Matches.</h3>
-            <p className="text-slate-500 font-bold mt-2 italic">Try a broader spirit description</p>
-          </div>
-        )}
-      </div>
+                {/* Condition Stepper */}
+                <div className="relative pt-12 pb-8 px-4">
+                   <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-100 dark:bg-slate-800 -translate-y-1/2 rounded-full" />
+                   <div 
+                      className="absolute top-1/2 left-0 h-1 bg-red-600 -translate-y-1/2 transition-all duration-1000 rounded-full" 
+                      style={{ width: `${(currentStatus.step / 3) * 100}%` }}
+                   />
+                   
+                   <div className="relative flex justify-between">
+                      {['pending', 'packed', 'dispatched', 'delivered'].map((s, idx) => {
+                        const stepInfo = statusInfo[s as OrderStatus];
+                        const isActive = idx <= currentStatus.step;
+                        const isCurrent = idx === currentStatus.step;
+                        return (
+                          <div key={s} className="flex flex-col items-center gap-4">
+                             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-500 z-10 border-4 ${
+                               isActive ? 'bg-red-600 border-white dark:border-slate-900 shadow-xl scale-110' : 'bg-slate-100 dark:bg-slate-800 border-white dark:border-slate-900 text-slate-400'
+                             }`}>
+                               <stepInfo.icon className={`w-6 h-6 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                             </div>
+                             <div className="text-center">
+                               <p className={`text-[9px] font-black uppercase tracking-widest ${isActive ? 'text-red-600' : 'text-slate-500'}`}>{stepInfo.label}</p>
+                               {isCurrent && <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 animate-pulse">In Progress</p>}
+                             </div>
+                          </div>
+                        );
+                      })}
+                   </div>
+                </div>
 
-      {cart.length > 0 && (
+                <div className="pt-6 border-t dark:border-white/5">
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Batch Contents</p>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {order.items.map((item, idx) => (
+                        <div key={idx} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border dark:border-white/5 flex items-center gap-3">
+                           <div className="p-2 bg-white dark:bg-slate-900 rounded-xl">
+                              <Package className="w-4 h-4 text-slate-400" />
+                           </div>
+                           <div>
+                              <p className="text-xs font-black dark:text-white leading-tight">{item.name}</p>
+                              <p className="text-[9px] font-bold text-slate-500 uppercase">Qty: {item.quantity}</p>
+                           </div>
+                        </div>
+                      ))}
+                   </div>
+                </div>
+              </div>
+            );
+          })}
+          {myOrders.length === 0 && (
+             <div className="text-center py-48 glass rounded-[4rem] border-dashed border-4 border-slate-200 dark:border-slate-800">
+                <ClipboardList className="w-24 h-24 text-slate-300 dark:text-slate-800 mx-auto mb-8" />
+                <h3 className="text-3xl font-black text-slate-400 uppercase tracking-widest">No orders yet</h3>
+                <p className="text-slate-500 font-bold mt-2">Start your procurement journey from the catalog.</p>
+             </div>
+          )}
+        </div>
+      )}
+
+      {cart.length > 0 && !showMyOrders && (
         <button
           onClick={() => setShowCart(true)}
           className="fixed bottom-10 right-10 vibrant-gradient text-white p-8 rounded-[3.5rem] shadow-[0_40px_100px_-20px_rgba(239,68,68,0.7)] flex items-center gap-6 animate-bounce hover:scale-110 active:scale-95 transition-all z-[100] border-8 border-white/20 dark:border-slate-900/30"

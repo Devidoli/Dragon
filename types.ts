@@ -32,6 +32,8 @@ export interface OrderItem {
   volume?: string;
 }
 
+export type OrderStatus = 'pending' | 'packed' | 'dispatched' | 'delivered';
+
 export interface Order {
   id: string;
   customerId: string;
@@ -39,7 +41,7 @@ export interface Order {
   shopName: string;
   items: OrderItem[];
   total: number;
-  status: 'pending' | 'delivered';
+  status: OrderStatus;
   paymentMethod: 'COD';
   createdAt: string;
 }
