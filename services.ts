@@ -41,10 +41,10 @@ const toCamelCase = (obj: any): any => {
 };
 
 export const SupabaseService = {
-  async fetchTable(table: string) {
+  async getTable(table: string, retryCount = 0): Promise<{ data: any[]; error: string | null }> {
     if (!SupabaseConfig.isConfigured) return { data: [], error: "Supabase URL/Key missing in environment." };
     try {
-      const response = await fetch(`${S_URL}/rest/v1/${table}?select=*`, {
+      const response = await window.fetch(`${S_URL}/rest/v1/${table}?select=*`, {
         headers: {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`,
@@ -52,6 +52,12 @@ export const SupabaseService = {
         }
       });
       
+      if (response.status === 429 && retryCount < 2) {
+        // Wait 1s and retry
+        await new Promise(r => setTimeout(r, 1000 * (retryCount + 1)));
+        return SupabaseService.getTable(table, retryCount + 1);
+      }
+
       if (!response.ok) {
         const errText = await response.text();
         return { data: [], error: `DB Error ${response.status}: ${errText}` };
@@ -64,10 +70,10 @@ export const SupabaseService = {
     }
   },
 
-  async fetchUserByEmail(email: string) {
+  async getUserByEmail(email: string) {
     if (!SupabaseConfig.isConfigured) return null;
     try {
-      const response = await fetch(`${S_URL}/rest/v1/users?email=eq.${email.toLowerCase()}&select=*`, {
+      const response = await window.fetch(`${S_URL}/rest/v1/users?email=eq.${email.toLowerCase()}&select=*`, {
         headers: {
           'apikey': S_KEY,
           'Authorization': `Bearer ${S_KEY}`
@@ -87,7 +93,7 @@ export const SupabaseService = {
     if (!SupabaseConfig.isConfigured) return { success: false, error: "Configuration missing." };
     try {
       const dbData = toSnakeCase(data);
-      const response = await fetch(`${S_URL}/rest/v1/${table}?on_conflict=id`, {
+      const response = await window.fetch(`${S_URL}/rest/v1/${table}?on_conflict=id`, {
         method: 'POST',
         headers: {
           'apikey': S_KEY,
@@ -112,7 +118,7 @@ export const SupabaseService = {
     if (!SupabaseConfig.isConfigured) return false;
     try {
       const dbData = toSnakeCase(data);
-      const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
+      const response = await window.fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
         method: 'PATCH',
         headers: {
           'apikey': S_KEY,
@@ -130,7 +136,7 @@ export const SupabaseService = {
   async delete(table: string, id: string): Promise<boolean> {
     if (!SupabaseConfig.isConfigured) return false;
     try {
-      const response = await fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
+      const response = await window.fetch(`${S_URL}/rest/v1/${table}?id=eq.${id}`, {
         method: 'DELETE',
         headers: {
           'apikey': S_KEY,
@@ -141,6 +147,59 @@ export const SupabaseService = {
     } catch (e) {
       return false;
     }
+  },
+
+  async upsertMany(table: string, data: any[]): Promise<{ success: boolean; error: string | null }> {
+    if (!SupabaseConfig.isConfigured) return { success: false, error: "Configuration missing." };
+    if (data.length === 0) return { success: true, error: null };
+    try {
+      const dbData = toSnakeCase(data);
+      const response = await window.fetch(`${S_URL}/rest/v1/${table}`, {
+        method: 'POST',
+        headers: {
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates, return=representation'
+        },
+        body: JSON.stringify(dbData)
+      });
+      
+      if (!response.ok) {
+        const errText = await response.text();
+        return { success: false, error: errText };
+      }
+      return { success: true, error: null };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  async deleteMany(table: string, ids: string[]): Promise<boolean> {
+    if (!SupabaseConfig.isConfigured || ids.length === 0) return false;
+    try {
+      const idList = ids.join(',');
+      const response = await window.fetch(`${S_URL}/rest/v1/${table}?id=in.(${idList})`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': S_KEY,
+          'Authorization': `Bearer ${S_KEY}`
+        }
+      });
+      return response.ok;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  async updateMany(table: string, updates: { id: string, data: any }[]): Promise<boolean> {
+    // PostgREST doesn't support bulk updates with different values easily in one request
+    // without a custom function. We'll use sequential with a small delay to avoid burst.
+    for (const update of updates) {
+      await SupabaseService.update(table, update.id, update.data);
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return true;
   }
 };
 
@@ -170,7 +229,7 @@ export const EmailService = {
         </div>
       `;
 
-      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      const response = await window.fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
           'accept': 'application/json',

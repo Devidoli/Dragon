@@ -2,10 +2,11 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { User, Product, Order, CounterSale, OrderStatus } from '../types';
+import { SupabaseService } from '../services';
 import { 
   Users, Package, TrendingUp, ArrowUpRight, Flame, 
   ShoppingCart, Clock, RefreshCcw, Loader2, Check, 
-  Plus, Minus, Trash2, LayoutGrid, Search, 
+  Plus, Minus, Trash2, LayoutGrid, Search, Edit,
   DollarSign, Activity, X, Upload, ChevronRight, Download, Eraser,
   FileText, History, CalendarDays, Truck, Boxes, ClipboardList, Filter
 } from 'lucide-react';
@@ -20,6 +21,7 @@ interface AdminDashboardProps {
   addProduct: (p: Product) => void;
   deleteProduct: (id: string) => void;
   updateStock: (id: string, qty: number) => void;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   addCounterSale: (sale: CounterSale) => void;
   deleteCounterSale: (id: string) => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
@@ -36,6 +38,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   addProduct,
   deleteProduct,
   updateStock,
+  updateProduct,
   addCounterSale,
   deleteCounterSale,
   updateOrderStatus,
@@ -48,12 +51,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
+  // Order Filter State
+  const [orderCustomerSearch, setOrderCustomerSearch] = useState('');
+  const [orderStartDate, setOrderStartDate] = useState('');
+  const [orderEndDate, setOrderEndDate] = useState('');
+
   // POS State
   const [posSearch, setPosSearch] = useState('');
   const [posCart, setPosCart] = useState<{product: Product, quantity: number, customPrice: number}[]>([]);
   
+  // Vault Search State
+  const [vaultSearch, setVaultSearch] = useState('');
+
+  const filteredVaultProducts = useMemo(() => {
+    return products.filter(p => 
+      p.name.toLowerCase().includes(vaultSearch.toLowerCase()) ||
+      p.category.toLowerCase().includes(vaultSearch.toLowerCase())
+    );
+  }, [products, vaultSearch]);
+  
   // Product Expansion State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newProd, setNewProd] = useState({ 
     name: '', category: 'Whisky', price: '', stock: '', volume: 'Full (750ml)', image: '' 
   });
@@ -96,17 +116,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const processPOSCheckout = async () => {
     if (posCart.length === 0) return;
-    for (const item of posCart) {
-      const sale: CounterSale = {
-        id: `SALE-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        productId: item.product.id,
-        productName: item.product.name,
-        price: item.customPrice,
-        quantity: item.quantity,
-        total: item.customPrice * item.quantity,
-        createdAt: new Date().toISOString()
-      };
-      await addCounterSale(sale);
+    const sales: CounterSale[] = posCart.map(item => ({
+      id: `SALE-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      productId: item.product.id,
+      productName: item.product.name,
+      price: item.customPrice,
+      quantity: item.quantity,
+      total: item.customPrice * item.quantity,
+      createdAt: new Date().toISOString()
+    }));
+
+    // Use upsertMany for batch processing
+    const res = await SupabaseService.upsertMany('counter_sales', sales);
+    if (res.success) {
+      const stockUpdates: { id: string, data: any }[] = [];
+      for (const sale of sales) {
+        const prod = products.find(p => p.id === sale.productId);
+        if (prod) {
+          const newStock = Math.max(0, prod.stock - sale.quantity);
+          stockUpdates.push({ id: prod.id, data: { stock: newStock } });
+        }
+      }
+      if (stockUpdates.length > 0) {
+        await SupabaseService.updateMany('products', stockUpdates);
+      }
+      if (onRefresh) await onRefresh();
     }
     setPosCart([]);
   };
@@ -160,9 +194,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     
     if (confirmation) {
       setIsRefreshing(true);
-      for (const sale of counterSales) {
-        await deleteCounterSale(sale.id);
-      }
+      const ids = counterSales.map(s => s.id);
+      // Batch delete
+      await SupabaseService.deleteMany('counter_sales', ids);
+      if (onRefresh) await onRefresh();
       setIsRefreshing(false);
       alert("Sales history purged successfully.");
     }
@@ -173,6 +208,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const totalCounter = counterSales.reduce((s, c) => s + c.total, 0);
   const totalRevenue = totalWholesale + totalCounter;
   const totalStockValue = products.reduce((s, p) => s + (p.price * p.stock), 0);
+
+  // Today's Sales Calculation
+  const todaySales = useMemo(() => {
+    const today = new Date().toLocaleDateString('en-GB');
+    const counterToday = counterSales.filter(s => new Date(s.createdAt).toLocaleDateString('en-GB') === today);
+    const ordersToday = orders.filter(o => new Date(o.createdAt).toLocaleDateString('en-GB') === today && o.status !== 'cancelled');
+    
+    const counterTotal = counterToday.reduce((s, c) => s + c.total, 0);
+    const ordersTotal = ordersToday.reduce((s, o) => s + o.total, 0);
+    
+    return counterTotal + ordersTotal;
+  }, [counterSales, orders]);
 
   const chartData: { name: string; value: number; color: string }[] = [
     { name: 'Wholesale', value: totalWholesale, color: '#dc2626' },
@@ -210,6 +257,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setNewProd({ name: '', category: 'Whisky', price: '', stock: '', volume: 'Full (750ml)', image: '' });
   };
 
+  const handleEditProduct = (p: Product) => {
+    setEditingProduct(p);
+    setShowEditModal(true);
+  };
+
+  const handleUpdateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProduct) return;
+    
+    await updateProduct(editingProduct.id, {
+      name: editingProduct.name,
+      price: Number(editingProduct.price),
+      stock: Number(editingProduct.stock),
+      category: editingProduct.category,
+      volume: editingProduct.volume
+    });
+    
+    setShowEditModal(false);
+    setEditingProduct(null);
+  };
+
   const statusColors: Record<OrderStatus, string> = {
     pending: 'bg-yellow-500/10 text-yellow-500',
     packed: 'bg-blue-500/10 text-blue-500',
@@ -220,11 +288,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const filteredOrders = useMemo(() => {
     let sorted = [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
     if (orderFilter !== 'all') {
       sorted = sorted.filter(o => o.status === orderFilter);
     }
+
+    if (orderCustomerSearch) {
+      sorted = sorted.filter(o => 
+        o.shopName.toLowerCase().includes(orderCustomerSearch.toLowerCase()) ||
+        o.id.toLowerCase().includes(orderCustomerSearch.toLowerCase())
+      );
+    }
+
+    if (orderStartDate) {
+      const start = new Date(orderStartDate);
+      start.setHours(0, 0, 0, 0);
+      sorted = sorted.filter(o => new Date(o.createdAt) >= start);
+    }
+
+    if (orderEndDate) {
+      const end = new Date(orderEndDate);
+      end.setHours(23, 59, 59, 999);
+      sorted = sorted.filter(o => new Date(o.createdAt) <= end);
+    }
+
     return sorted;
-  }, [orders, orderFilter]);
+  }, [orders, orderFilter, orderCustomerSearch, orderStartDate, orderEndDate]);
 
   const handleCancelOrder = (id: string) => {
     if (window.confirm("Are you sure you want to cancel this order? Stock will be returned to inventory.")) {
@@ -265,8 +354,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Analytics View */}
       {activeTab === 'stats' && (
         <div className="space-y-12 animate-in fade-in duration-700">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
             {[
+              { label: 'Today\'s Sales', value: `Rs. ${todaySales.toLocaleString()}`, icon: Activity, color: 'text-red-500' },
               { label: 'Total Sales', value: `Rs. ${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-500' },
               { label: 'Merchant Network', value: users.length, icon: Users, color: 'text-blue-500' },
               { label: 'Inventory Value', value: `Rs. ${totalStockValue.toLocaleString()}`, icon: Package, color: 'text-red-500' },
@@ -347,6 +437,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Advanced Filters */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-red-500 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Search by Merchant or ID..." 
+                value={orderCustomerSearch}
+                onChange={e => setOrderCustomerSearch(e.target.value)}
+                className="w-full bg-white dark:bg-slate-900 border-none rounded-2xl py-4 pl-12 pr-4 font-bold dark:text-white shadow-xl focus:ring-4 focus:ring-red-500/10 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-4 bg-white dark:bg-slate-900 p-2 rounded-2xl shadow-xl">
+              <div className="flex-1 flex flex-col px-3">
+                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Start Date</label>
+                <input 
+                  type="date" 
+                  value={orderStartDate}
+                  onChange={e => setOrderStartDate(e.target.value)}
+                  className="bg-transparent border-none p-0 text-xs font-bold dark:text-white focus:ring-0"
+                />
+              </div>
+              <div className="w-px h-8 bg-slate-100 dark:bg-white/5" />
+              <div className="flex-1 flex flex-col px-3">
+                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">End Date</label>
+                <input 
+                  type="date" 
+                  value={orderEndDate}
+                  onChange={e => setOrderEndDate(e.target.value)}
+                  className="bg-transparent border-none p-0 text-xs font-bold dark:text-white focus:ring-0"
+                />
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                setOrderCustomerSearch('');
+                setOrderStartDate('');
+                setOrderEndDate('');
+                setOrderFilter('all');
+              }}
+              className="flex items-center justify-center gap-2 px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all shadow-xl"
+            >
+              <RefreshCcw className="w-4 h-4" /> Reset Filters
+            </button>
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl overflow-hidden">
@@ -501,6 +637,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {dateLabel}
                   </h3>
                   <div className="h-px w-full bg-slate-200 dark:bg-white/5" />
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Daily Total:</span>
+                    <span className="text-sm font-black text-red-600">Rs. {sales.reduce((s, c) => s + c.total, 0).toLocaleString()}</span>
+                  </div>
                 </div>
                 
                 <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-white/5 shadow-2xl overflow-hidden">
@@ -659,12 +799,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <Package className="w-8 h-8 text-red-500" />
                 <h2 className="text-3xl font-black dark:text-white uppercase tracking-tighter">Vault Management</h2>
               </div>
-              <button 
-                onClick={() => setShowAddModal(true)}
-                className="px-8 py-4 bg-red-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest shadow-xl flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" /> Expand Catalog
-              </button>
+              <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                <div className="relative w-full sm:w-64 group">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-red-500 transition-colors" />
+                  <input 
+                    type="text" 
+                    placeholder="Search vault..." 
+                    value={vaultSearch}
+                    onChange={e => setVaultSearch(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-900 border-none rounded-2xl py-3 pl-12 pr-4 font-bold dark:text-white shadow-xl focus:ring-4 focus:ring-red-500/10 text-xs"
+                  />
+                </div>
+                <button 
+                  onClick={() => setShowAddModal(true)}
+                  className="w-full sm:w-auto px-8 py-4 bg-red-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" /> Expand Catalog
+                </button>
+              </div>
            </div>
 
            <div className="bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl overflow-hidden">
@@ -678,7 +830,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  </tr>
                </thead>
                <tbody className="divide-y dark:divide-white/5">
-                 {products.map(p => (
+                 {filteredVaultProducts.map(p => (
                    <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-all">
                      <td className="px-10 py-8">
                        <div className="flex items-center gap-4">
@@ -698,6 +850,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                      <td className="px-10 py-8 font-black dark:text-slate-400 tracking-tighter">Rs. {p.price.toLocaleString()}</td>
                      <td className="px-10 py-8 text-right">
                        <div className="flex items-center justify-end gap-3">
+                         <button onClick={() => handleEditProduct(p)} className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:text-blue-500 transition-colors" title="Edit Product"><Edit className="w-4 h-4" /></button>
                          <button onClick={() => updateStock(p.id, p.stock - 1)} className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:text-red-500 transition-colors"><Minus className="w-4 h-4" /></button>
                          <button onClick={() => updateStock(p.id, p.stock + 1)} className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl hover:text-emerald-500 transition-colors"><Plus className="w-4 h-4" /></button>
                          <button onClick={() => deleteProduct(p.id)} className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-600 hover:text-white transition-all"><Trash2 className="w-4 h-4" /></button>
@@ -849,6 +1002,53 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
              <button type="submit" className="w-full py-5 bg-red-600 text-white font-black rounded-[2rem] shadow-xl hover:scale-105 active:scale-95 transition-all text-xs uppercase tracking-[0.2em]">
                 Confirm & Add
+             </button>
+          </form>
+        </div>
+      )}
+      {/* Edit Product Modal */}
+      {showEditModal && editingProduct && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-2xl" onClick={() => setShowEditModal(false)} />
+          <form onSubmit={handleUpdateProduct} className="relative w-full max-w-xl bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-[0_0_100px_rgba(0,0,0,1)] space-y-8 animate-in zoom-in-95">
+             <div className="flex items-center justify-between">
+                <h2 className="text-3xl font-black dark:text-white uppercase tracking-tighter">Edit Product</h2>
+                <button type="button" onClick={() => setShowEditModal(false)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><X /></button>
+             </div>
+
+             <div className="space-y-6">
+                <div className="space-y-2">
+                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Product Name</label>
+                   <input required value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl py-4 px-6 font-bold dark:text-white" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Category</label>
+                      <select value={editingProduct.category} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl py-4 px-6 font-bold dark:text-white">
+                        {['Whisky', 'Vodka', 'Rum', 'Gin', 'Beer', 'Wine', 'Juice'].map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                   </div>
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Volume</label>
+                      <input required value={editingProduct.volume} onChange={e => setEditingProduct({...editingProduct, volume: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl py-4 px-6 font-bold dark:text-white" />
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Price (Rs.)</label>
+                      <input required type="number" value={editingProduct.price} onChange={e => setEditingProduct({...editingProduct, price: Number(e.target.value)})} className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl py-4 px-6 font-bold dark:text-white" />
+                   </div>
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Stock</label>
+                      <input required type="number" value={editingProduct.stock} onChange={e => setEditingProduct({...editingProduct, stock: Number(e.target.value)})} className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl py-4 px-6 font-bold dark:text-white" />
+                   </div>
+                </div>
+             </div>
+
+             <button type="submit" className="w-full py-5 bg-red-600 text-white font-black rounded-[2rem] shadow-xl hover:scale-105 active:scale-95 transition-all text-xs uppercase tracking-[0.2em]">
+                Update Product
              </button>
           </form>
         </div>

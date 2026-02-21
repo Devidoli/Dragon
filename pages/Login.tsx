@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, AuthState } from '../types';
 import { EmailService, SupabaseService } from '../services';
@@ -19,6 +19,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
   const [isSending, setIsSending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const navigate = useNavigate();
+  const hasAttemptedAutoLogin = useRef(false);
 
   const handleSendCode = useCallback(async (e?: React.FormEvent, directEmail?: string) => {
     e?.preventDefault();
@@ -30,7 +31,7 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
     if (isTrusted) {
       setStep('trusting');
       
-      const userProfile = await SupabaseService.fetchUserByEmail(cleanEmail);
+      const userProfile = await SupabaseService.getUserByEmail(cleanEmail);
       const isAdmin = ADMIN_EMAILS.includes(cleanEmail);
 
       if (userProfile || isAdmin) {
@@ -78,10 +79,13 @@ const Login: React.FC<LoginProps> = ({ setAuth, users }) => {
   }, [email, setAuth, navigate]);
 
   useEffect(() => {
+    if (hasAttemptedAutoLogin.current) return;
+    
     const lastEmail = localStorage.getItem('dragon_last_email');
     if (lastEmail) {
       const isTrusted = localStorage.getItem(`dragon_trusted_device_${lastEmail.toLowerCase()}`) === 'true';
       if (isTrusted) {
+        hasAttemptedAutoLogin.current = true;
         handleSendCode(undefined, lastEmail);
       }
     }

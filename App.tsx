@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus, OrderStatus } from './types';
 import { INITIAL_PRODUCTS, ADMIN_EMAILS } from './constants';
@@ -10,6 +10,14 @@ import Shop from './pages/Shop';
 import AdminDashboard from './pages/AdminDashboard';
 import CustomerDetails from './pages/CustomerDetails';
 import { LogOut, Flame, Sun, Moon, Loader2 } from 'lucide-react';
+
+const getBasename = () => {
+  return window.location.hostname.includes('vercel.app') ? '/' : (
+    window.location.pathname.length > 1 && window.location.pathname.includes('-') 
+      ? window.location.pathname.split('/').slice(0, 2).join('/') 
+      : '/'
+  );
+};
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -26,22 +34,44 @@ const App: React.FC = () => {
   const [counterSales, setCounterSales] = useState<CounterSale[]>([]);
   
   const refreshInterval = useRef<number | null>(null);
+  const isRefreshing = useRef(false);
+  const lastRefreshTime = useRef<number>(parseInt(localStorage.getItem('dragon_last_refresh') || '0', 10));
 
-  const basename = window.location.hostname.includes('vercel.app') ? '/' : (
-    window.location.pathname.length > 1 && window.location.pathname.includes('-') 
-      ? window.location.pathname.split('/').slice(0, 2).join('/') 
-      : '/'
-  );
+  const basename = useMemo(() => getBasename(), []);
 
-  const refreshData = useCallback(async () => {
+  const refreshData = useCallback(async (force = false) => {
+    const now = Date.now();
+    const globalLastRefresh = parseInt(localStorage.getItem('dragon_last_refresh') || '0', 10);
+    
+    // Prevent refreshes happening too close to each other (min 30s gap across tabs)
+    if (!force && (now - globalLastRefresh < 30000)) return;
+    if (isRefreshing.current) return;
+    
+    // Only refresh if tab is visible, unless forced
+    if (!force && document.visibilityState !== 'visible') return;
+
+    isRefreshing.current = true;
+    lastRefreshTime.current = now;
+    localStorage.setItem('dragon_last_refresh', now.toString());
+    
     try {
-      const uRes = await SupabaseService.fetchTable('users');
-      const pRes = await SupabaseService.fetchTable('products');
-      const oRes = await SupabaseService.fetchTable('orders');
-      const cRes = await SupabaseService.fetchTable('counter_sales');
+      // Fetch sequentially to avoid burst rate limits
+      const uRes = await SupabaseService.getTable('users');
+      await new Promise(r => setTimeout(r, 200)); // Small gap
+      const pRes = await SupabaseService.getTable('products');
+      await new Promise(r => setTimeout(r, 200));
+      const oRes = await SupabaseService.getTable('orders');
+      await new Promise(r => setTimeout(r, 200));
+      const cRes = await SupabaseService.getTable('counter_sales');
 
-      if (uRes.error) setDbError(uRes.error);
-      else setDbError(null);
+      if (uRes.error || pRes.error || oRes.error || cRes.error) {
+        const firstError = uRes.error || pRes.error || oRes.error || cRes.error;
+        setDbError(firstError);
+        // Auto-clear error after 5 seconds so it's not sticky
+        setTimeout(() => setDbError(null), 5000);
+      } else {
+        setDbError(null);
+      }
 
       const uData = uRes.data as User[];
       const processedUsers: User[] = uData.map((user: User) => {
@@ -51,28 +81,39 @@ const App: React.FC = () => {
         return user;
       });
 
-      if (processedUsers.length === 0 && auth.user?.role === 'admin') {
-         processedUsers.push(auth.user);
-      }
-
       setUsers(processedUsers);
-      setProducts(pRes.data.length > 0 ? pRes.data : (products.length === 0 ? INITIAL_PRODUCTS : products));
+      
+      setProducts(prev => {
+        if (pRes.data.length > 0) return pRes.data;
+        return prev.length === 0 ? INITIAL_PRODUCTS : prev;
+      });
+      
       setOrders(oRes.data);
       setCounterSales(cRes.data);
     } catch (err) {
       console.error("Critical error during data refresh:", err);
+    } finally {
+      isRefreshing.current = false;
     }
-  }, [auth.user, products.length]);
+  }, []);
 
   useEffect(() => {
-    const init = async () => {
-      await refreshData();
-      setLoading(false);
+    refreshData(true).then(() => setLoading(false));
+    
+    const interval = window.setInterval(() => refreshData(false), 300000); // 5 minutes
+    refreshInterval.current = interval;
+    
+    // Also refresh when tab becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshData(false);
+      }
     };
-    init();
-    refreshInterval.current = window.setInterval(refreshData, 30000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
     return () => {
-      if (refreshInterval.current) clearInterval(refreshInterval.current);
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [refreshData]);
 
@@ -90,10 +131,14 @@ const App: React.FC = () => {
     setAuth({ user: null, isAuthenticated: false });
   };
 
-  const updateProductStock = async (id: string, newStock: number) => {
-    const updated = products.map(p => p.id === id ? { ...p, stock: newStock } : p);
-    setProducts(updated);
-    await SupabaseService.update('products', id, { stock: newStock });
+  const updateProduct = async (id: string, updates: Partial<Product>, skipRefresh = false) => {
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    await SupabaseService.update('products', id, updates);
+    if (!skipRefresh) await refreshData();
+  };
+
+  const updateProductStock = async (id: string, newStock: number, skipRefresh = false) => {
+    await updateProduct(id, { stock: newStock }, skipRefresh);
   };
 
   const addProduct = async (p: Product) => {
@@ -111,12 +156,16 @@ const App: React.FC = () => {
     setOrders(prev => [order, ...prev]);
     const res = await SupabaseService.upsert('orders', order);
     if (res.success) {
+      const stockUpdates: { id: string, data: any }[] = [];
       for (const item of order.items) {
         const prod = products.find(p => p.id === item.productId);
         if (prod) {
           const newStock = Math.max(0, prod.stock - item.quantity);
-          await updateProductStock(prod.id, newStock);
+          stockUpdates.push({ id: prod.id, data: { stock: newStock } });
         }
+      }
+      if (stockUpdates.length > 0) {
+        await SupabaseService.updateMany('products', stockUpdates);
       }
       await refreshData();
     }
@@ -127,17 +176,22 @@ const App: React.FC = () => {
     
     // Auto-restock logic if order is cancelled
     if (status === 'cancelled' && currentOrder && currentOrder.status !== 'cancelled') {
+        const stockUpdates: { id: string, data: any }[] = [];
         for (const item of currentOrder.items) {
             const prod = products.find(p => p.id === item.productId);
             if (prod) {
                 const newStock = prod.stock + item.quantity;
-                await updateProductStock(prod.id, newStock);
+                stockUpdates.push({ id: prod.id, data: { stock: newStock } });
             }
+        }
+        if (stockUpdates.length > 0) {
+            await SupabaseService.updateMany('products', stockUpdates);
         }
     }
 
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
     await SupabaseService.update('orders', orderId, { status });
+    await refreshData();
   };
 
   const addCounterSale = async (sale: CounterSale) => {
@@ -147,7 +201,7 @@ const App: React.FC = () => {
       const prod = products.find(p => p.id === sale.productId);
       if (prod) {
         const newStock = Math.max(0, prod.stock - sale.quantity);
-        await updateProductStock(prod.id, newStock);
+        await updateProductStock(prod.id, newStock, true);
       }
       await refreshData();
     }
@@ -213,8 +267,8 @@ const App: React.FC = () => {
           <Routes>
             <Route path="/login" element={auth.isAuthenticated ? <Navigate to="/" /> : <Login setAuth={setAuth} users={users} />} />
             <Route path="/signup" element={auth.isAuthenticated ? <Navigate to="/" /> : <Signup setAuth={setAuth} setUsers={setUsers} users={users} />} />
-            <Route path="/" element={auth.isAuthenticated ? (auth.user?.role === 'admin' ? <Navigate to="/admin" /> : <Shop user={auth.user!} products={products} placeOrder={placeOrder} orders={orders} />) : <Navigate to="/login" />} />
-            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} updateOrderStatus={updateOrderStatus} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
+            <Route path="/" element={auth.isAuthenticated ? (auth.user?.role === 'admin' ? <Navigate to="/admin" /> : <Shop user={auth.user!} products={products} placeOrder={placeOrder} orders={orders} updateOrderStatus={updateOrderStatus} />) : <Navigate to="/login" />} />
+            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} updateProduct={updateProduct} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} updateOrderStatus={updateOrderStatus} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
             <Route path="/admin/customer/:id" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <CustomerDetails users={users} orders={orders} /> : <Navigate to="/login" />} />
           </Routes>
         </main>
