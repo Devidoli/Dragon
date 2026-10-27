@@ -1,14 +1,14 @@
-
 import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { User, Product, Order, CounterSale, OrderStatus } from '../types';
+import { User, Product, Order, CounterSale, OrderStatus, Expense } from '../types';
+import ExpensesPanel from '../components/ExpensesPanel';
 import { SupabaseService } from '../services';
 import { 
   Users, Package, TrendingUp, ArrowUpRight, Flame, 
   ShoppingCart, Clock, RefreshCcw, Loader2, Check, 
   Plus, Minus, Trash2, LayoutGrid, Search, Edit,
   DollarSign, Activity, X, Upload, ChevronRight, Download, Eraser,
-  FileText, History, CalendarDays, Truck, Boxes, ClipboardList, Filter
+  FileText, History, CalendarDays, Truck, Boxes, ClipboardList, Filter, Wallet
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -17,6 +17,9 @@ interface AdminDashboardProps {
   products: Product[];
   orders: Order[];
   counterSales: CounterSale[];
+  expenses: Expense[];
+  addExpense: (e: Expense) => Promise<boolean>;
+  deleteExpense: (id: string) => Promise<void> | void;
   approveUser: (id: string) => Promise<boolean>;
   addProduct: (p: Product) => void;
   deleteProduct: (id: string) => void;
@@ -34,6 +37,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   products, 
   orders, 
   counterSales, 
+  expenses,
+  addExpense,
+  deleteExpense,
   approveUser, 
   addProduct,
   deleteProduct,
@@ -45,7 +51,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRefresh
 }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'stats' | 'users' | 'inventory' | 'counter' | 'ledger' | 'orders'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'users' | 'inventory' | 'counter' | 'expenses' | 'ledger' | 'orders'>('stats');
   const [orderFilter, setOrderFilter] = useState<OrderStatus | 'all'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
@@ -339,6 +345,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             { id: 'stats', label: 'Analytics', icon: TrendingUp },
             { id: 'orders', label: 'B2B Orders', icon: ClipboardList },
             { id: 'counter', label: 'POS Terminal', icon: ShoppingCart },
+            { id: 'expenses', label: 'Expenses', icon: Wallet },
             { id: 'ledger', label: 'History', icon: CalendarDays },
             { id: 'users', label: 'Merchants', icon: Users },
             { id: 'inventory', label: 'Vault', icon: Package }
@@ -789,6 +796,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
              </div>
           </div>
         </div>
+      )}
+
+      {/* Expenses View */}
+      {activeTab === 'expenses' && (
+        <ExpensesPanel
+          expenses={expenses}
+          todaySales={todaySales}
+          addExpense={addExpense}
+          deleteExpense={deleteExpense}
+        />
       )}
 
       {/* Vault Inventory View */}

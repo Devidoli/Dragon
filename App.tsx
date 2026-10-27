@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus, OrderStatus } from './types';
+import { User, Product, Order, AuthState, CounterSale, UserRole, UserStatus, OrderStatus, Expense } from './types';
 import { INITIAL_PRODUCTS, ADMIN_EMAILS } from './constants';
 import { SupabaseService } from './services';
 import Login from './pages/Login';
@@ -32,6 +31,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [counterSales, setCounterSales] = useState<CounterSale[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   
   const refreshInterval = useRef<number | null>(null);
   const isRefreshing = useRef(false);
@@ -63,6 +63,8 @@ const App: React.FC = () => {
       const oRes = await SupabaseService.getTable('orders');
       await new Promise(r => setTimeout(r, 200));
       const cRes = await SupabaseService.getTable('counter_sales');
+      await new Promise(r => setTimeout(r, 200));
+      const eRes = await SupabaseService.getTable('expenses');
 
       if (uRes.error || pRes.error || oRes.error || cRes.error) {
         const firstError = uRes.error || pRes.error || oRes.error || cRes.error;
@@ -90,6 +92,9 @@ const App: React.FC = () => {
       
       setOrders(oRes.data);
       setCounterSales(cRes.data);
+      // Expenses load separately so a missing table never breaks the rest of the app
+      if (!eRes.error) setExpenses(eRes.data as Expense[]);
+      else console.warn('Expenses not loaded:', eRes.error);
     } catch (err) {
       console.error("Critical error during data refresh:", err);
     } finally {
@@ -212,6 +217,21 @@ const App: React.FC = () => {
     await SupabaseService.delete('counter_sales', id);
   };
 
+  const addExpense = async (expense: Expense): Promise<boolean> => {
+    setExpenses(prev => [expense, ...prev]);
+    const res = await SupabaseService.upsert('expenses', expense);
+    if (!res.success) {
+      setExpenses(prev => prev.filter(e => e.id !== expense.id));
+      return false;
+    }
+    return true;
+  };
+
+  const deleteExpense = async (id: string) => {
+    setExpenses(prev => prev.filter(e => e.id !== id));
+    await SupabaseService.delete('expenses', id);
+  };
+
   const approveUser = async (userId: string) => {
     const success = await SupabaseService.update('users', userId, { status: 'approved' });
     if (success) {
@@ -268,7 +288,7 @@ const App: React.FC = () => {
             <Route path="/login" element={auth.isAuthenticated ? <Navigate to="/" /> : <Login setAuth={setAuth} users={users} />} />
             <Route path="/signup" element={auth.isAuthenticated ? <Navigate to="/" /> : <Signup setAuth={setAuth} setUsers={setUsers} users={users} />} />
             <Route path="/" element={auth.isAuthenticated ? (auth.user?.role === 'admin' ? <Navigate to="/admin" /> : <Shop user={auth.user!} products={products} placeOrder={placeOrder} orders={orders} updateOrderStatus={updateOrderStatus} />) : <Navigate to="/login" />} />
-            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} updateProduct={updateProduct} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} updateOrderStatus={updateOrderStatus} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
+            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} updateProduct={updateProduct} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} updateOrderStatus={updateOrderStatus} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
             <Route path="/admin/customer/:id" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <CustomerDetails users={users} orders={orders} /> : <Navigate to="/login" />} />
           </Routes>
         </main>
