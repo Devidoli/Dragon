@@ -212,6 +212,45 @@ const App: React.FC = () => {
     }
   };
 
+  // Whole POS checkout in one go: all items are saved, stock is reduced, and the bill shows up immediately
+  const addCounterSales = async (sales: CounterSale[]): Promise<'ok' | 'no-payment' | 'failed'> => {
+    if (sales.length === 0) return 'failed';
+    setCounterSales(prev => [...sales, ...prev]);
+
+    let result: 'ok' | 'no-payment' | 'failed' = 'ok';
+    let res = await SupabaseService.upsertMany('counter_sales', sales);
+    if (!res.success) {
+      // Database may not have the new payment/bill columns yet: save the sale without them
+      const plain = sales.map(({ billId, paymentMethod, cashAmount, qrAmount, ...rest }) => rest);
+      res = await SupabaseService.upsertMany('counter_sales', plain);
+      result = res.success ? 'no-payment' : 'failed';
+    }
+    if (!res.success) {
+      const ids = new Set(sales.map(s => s.id));
+      setCounterSales(prev => prev.filter(s => !ids.has(s.id)));
+      return 'failed';
+    }
+
+    const stockUpdates: { id: string, data: any }[] = [];
+    for (const sale of sales) {
+      const prod = products.find(p => p.id === sale.productId);
+      if (prod) stockUpdates.push({ id: prod.id, data: { stock: Math.max(0, prod.stock - sale.quantity) } });
+    }
+    setProducts(prev => prev.map(p => {
+      const u = stockUpdates.find(x => x.id === p.id);
+      return u ? { ...p, stock: u.data.stock } : p;
+    }));
+    if (stockUpdates.length > 0) await SupabaseService.updateMany('products', stockUpdates);
+    await refreshData(true);
+    return result;
+  };
+
+  const deleteCounterSales = async (ids: string[]) => {
+    const idSet = new Set(ids);
+    setCounterSales(prev => prev.filter(s => !idSet.has(s.id)));
+    await SupabaseService.deleteMany('counter_sales', ids);
+  };
+
   const deleteCounterSale = async (id: string) => {
     setCounterSales(prev => prev.filter(s => s.id !== id));
     await SupabaseService.delete('counter_sales', id);
@@ -219,7 +258,12 @@ const App: React.FC = () => {
 
   const addExpense = async (expense: Expense): Promise<boolean> => {
     setExpenses(prev => [expense, ...prev]);
-    const res = await SupabaseService.upsert('expenses', expense);
+    let res = await SupabaseService.upsert('expenses', expense);
+    // If the new "type" column isn't in the database yet, plain expenses can still be saved
+    if (!res.success && expense.type === 'expense') {
+      const { type, ...legacy } = expense;
+      res = await SupabaseService.upsert('expenses', legacy);
+    }
     if (!res.success) {
       setExpenses(prev => prev.filter(e => e.id !== expense.id));
       return false;
@@ -288,7 +332,7 @@ const App: React.FC = () => {
             <Route path="/login" element={auth.isAuthenticated ? <Navigate to="/" /> : <Login setAuth={setAuth} users={users} />} />
             <Route path="/signup" element={auth.isAuthenticated ? <Navigate to="/" /> : <Signup setAuth={setAuth} setUsers={setUsers} users={users} />} />
             <Route path="/" element={auth.isAuthenticated ? (auth.user?.role === 'admin' ? <Navigate to="/admin" /> : <Shop user={auth.user!} products={products} placeOrder={placeOrder} orders={orders} updateOrderStatus={updateOrderStatus} />) : <Navigate to="/login" />} />
-            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} updateProduct={updateProduct} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} updateOrderStatus={updateOrderStatus} onRefresh={refreshData} dbError={dbError} /> : <Navigate to="/login" />} />
+            <Route path="/admin" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <AdminDashboard users={users} products={products} orders={orders} counterSales={counterSales} expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} approveUser={approveUser} addProduct={addProduct} deleteProduct={deleteProduct} updateStock={updateProductStock} updateProduct={updateProduct} addCounterSale={addCounterSale} deleteCounterSale={deleteCounterSale} addCounterSales={addCounterSales} deleteCounterSales={deleteCounterSales} updateOrderStatus={updateOrderStatus} onRefresh={() => refreshData(true)} dbError={dbError} /> : <Navigate to="/login" />} />
             <Route path="/admin/customer/:id" element={auth.isAuthenticated && auth.user?.role === 'admin' ? <CustomerDetails users={users} orders={orders} /> : <Navigate to="/login" />} />
           </Routes>
         </main>
