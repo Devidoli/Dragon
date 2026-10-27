@@ -138,9 +138,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // POS Logic
-  const filteredPOSProducts = useMemo(() => 
-    products.filter(p => p.name.toLowerCase().includes(posSearch.toLowerCase()) && p.stock > 0),
-  [products, posSearch]);
+  // Units sold per product (store sales first, B2B orders break ties) so best sellers come first
+  const soldByProduct = useMemo(() => {
+    const store: Record<string, number> = {};
+    const b2b: Record<string, number> = {};
+    counterSales.forEach(s => { store[s.productId] = (store[s.productId] || 0) + s.quantity; });
+    orders.forEach(o => {
+      if (o.status === 'cancelled') return;
+      o.items.forEach(i => { b2b[i.productId] = (b2b[i.productId] || 0) + i.quantity; });
+    });
+    return { store, b2b };
+  }, [counterSales, orders]);
+
+  const filteredPOSProducts = useMemo(() =>
+    products
+      .filter(p => p.name.toLowerCase().includes(posSearch.toLowerCase()) && p.stock > 0)
+      .sort((a, b) =>
+        (soldByProduct.store[b.id] || 0) - (soldByProduct.store[a.id] || 0) ||
+        (soldByProduct.b2b[b.id] || 0) - (soldByProduct.b2b[a.id] || 0) ||
+        a.name.localeCompare(b.name)
+      ),
+  [products, posSearch, soldByProduct]);
 
   const addToPOSCart = (p: Product) => {
     const existing = posCart.find(item => item.product.id === p.id);
@@ -1001,7 +1019,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <img src={p.image} className="w-12 h-12 rounded-lg object-cover" alt="" />
                   <div className="flex-1">
                     <p className="font-black dark:text-white text-sm leading-tight">{p.name}</p>
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{p.volume} • Stock: {p.stock}</p>
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{p.volume} • Stock: {p.stock} • Sold: {soldByProduct.store[p.id] || 0}</p>
                   </div>
                   <Plus className="w-4 h-4 text-slate-400 group-hover:text-red-500" />
                 </button>
