@@ -330,7 +330,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-12 pb-32">
       {/* Navigation Header */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-8">
+      <div className="flex flex-col gap-8">
         <div className="flex flex-col sm:flex-row sm:items-center gap-6">
           <div className="p-4 bg-red-600 rounded-[1.5rem] shadow-xl">
             <Flame className="text-white w-10 h-10" /> 
@@ -340,7 +340,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-[10px] mt-2">Distribution Control Center</p>
           </div>
         </div>
-        <div className="flex bg-white dark:bg-slate-800/50 backdrop-blur p-2 rounded-[1.75rem] border border-slate-200 dark:border-slate-700 shadow-xl overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-1 w-full bg-white dark:bg-slate-800/50 backdrop-blur p-2 rounded-[1.75rem] border border-slate-200 dark:border-slate-700 shadow-xl">
           {[
             { id: 'stats', label: 'Analytics', icon: TrendingUp },
             { id: 'orders', label: 'B2B Orders', icon: ClipboardList },
@@ -350,11 +350,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             { id: 'users', label: 'Merchants', icon: Users },
             { id: 'inventory', label: 'Vault', icon: Package }
           ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-4 rounded-2xl font-bold transition-all text-[10px] uppercase tracking-widest whitespace-nowrap ${activeTab === tab.id ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-red-500'}`}>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-5 py-3.5 rounded-2xl font-bold transition-all text-[10px] uppercase tracking-widest whitespace-nowrap ${activeTab === tab.id ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-red-500'}`}>
               <tab.icon className="w-4 h-4" /> {tab.label}
             </button>
           ))}
-          <button onClick={handleManualRefresh} className="px-4 text-slate-500 hover:text-red-500"><RefreshCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} /></button>
+          <button onClick={handleManualRefresh} className="ml-auto px-4 py-3.5 text-slate-500 hover:text-red-500"><RefreshCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} /></button>
         </div>
       </div>
 
