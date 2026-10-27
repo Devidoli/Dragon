@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { User, Product, Order, CounterSale, OrderStatus, Expense } from '../types';
+import { User, Product, Order, CounterSale, OrderStatus, Expense, PaymentMethod } from '../types';
 import ExpensesPanel from '../components/ExpensesPanel';
 import { SupabaseService } from '../services';
 import { 
@@ -8,9 +8,37 @@ import {
   ShoppingCart, Clock, RefreshCcw, Loader2, Check, 
   Plus, Minus, Trash2, LayoutGrid, Search, Edit,
   DollarSign, Activity, X, Upload, ChevronRight, Download, Eraser,
-  FileText, History, CalendarDays, Truck, Boxes, ClipboardList, Filter, Wallet
+  FileText, History, CalendarDays, Truck, Boxes, ClipboardList, Filter, Wallet,
+  QrCode, Banknote, ArrowLeftRight, Receipt, TrendingDown, Trophy, AlertTriangle
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+
+// ---------- small helpers ----------
+const LOW_STOCK_LIMIT = 10; // products with this many units or fewer are flagged on Analytics
+
+const dayKey = (d: Date | string) => {
+  const date = typeof d === 'string' ? new Date(d) : d;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// How much of a POS row was paid in cash / by QR (older rows without payment info count as cash)
+const cashOf = (s: CounterSale) =>
+  s.paymentMethod ? (s.cashAmount ?? (s.paymentMethod === 'cash' ? s.total : 0)) : s.total;
+const qrOf = (s: CounterSale) =>
+  s.paymentMethod ? (s.qrAmount ?? (s.paymentMethod === 'qr' ? s.total : 0)) : 0;
+
+interface Bill {
+  key: string;
+  createdAt: string;
+  items: CounterSale[];
+  total: number;
+  cash: number;
+  qr: number;
+}
+const billMethod = (b: { cash: number; qr: number }): PaymentMethod =>
+  b.cash > 0 && b.qr > 0 ? 'split' : b.qr > 0 ? 'qr' : 'cash';
 
 interface AdminDashboardProps {
   users: User[];
@@ -27,6 +55,8 @@ interface AdminDashboardProps {
   updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   addCounterSale: (sale: CounterSale) => void;
   deleteCounterSale: (id: string) => void;
+  addCounterSales: (sales: CounterSale[]) => Promise<'ok' | 'no-payment' | 'failed'>;
+  deleteCounterSales: (ids: string[]) => Promise<void> | void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   onRefresh?: () => void;
   dbError?: string | null;
@@ -47,6 +77,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   updateProduct,
   addCounterSale,
   deleteCounterSale,
+  addCounterSales,
+  deleteCounterSales,
   updateOrderStatus,
   onRefresh
 }) => {
@@ -65,6 +97,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // POS State
   const [posSearch, setPosSearch] = useState('');
   const [posCart, setPosCart] = useState<{product: Product, quantity: number, customPrice: number}[]>([]);
+  const [posPayMethod, setPosPayMethod] = useState<PaymentMethod>('cash');
+  const [posCashInput, setPosCashInput] = useState('');
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+
+  // Analytics period
+  const [range, setRange] = useState<'today' | '7d' | '30d'>('today');
   
   // Vault Search State
   const [vaultSearch, setVaultSearch] = useState('');
@@ -120,65 +158,112 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setPosCart(posCart.map(item => item.product.id === id ? { ...item, ...updates } : item));
   };
 
-  const processPOSCheckout = async () => {
-    if (posCart.length === 0) return;
-    const sales: CounterSale[] = posCart.map(item => ({
-      id: `SALE-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      productId: item.product.id,
-      productName: item.product.name,
-      price: item.customPrice,
-      quantity: item.quantity,
-      total: item.customPrice * item.quantity,
-      createdAt: new Date().toISOString()
-    }));
+  const posTotal = posCart.reduce((sum, i) => sum + i.customPrice * i.quantity, 0);
+  const splitCash = Math.min(Math.max(Number(posCashInput) || 0, 0), posTotal);
+  const splitQr = round2(posTotal - splitCash);
 
-    // Use upsertMany for batch processing
-    const res = await SupabaseService.upsertMany('counter_sales', sales);
-    if (res.success) {
-      const stockUpdates: { id: string, data: any }[] = [];
-      for (const sale of sales) {
-        const prod = products.find(p => p.id === sale.productId);
-        if (prod) {
-          const newStock = Math.max(0, prod.stock - sale.quantity);
-          stockUpdates.push({ id: prod.id, data: { stock: newStock } });
-        }
+  const processPOSCheckout = async () => {
+    if (posCart.length === 0 || isCheckingOut) return;
+
+    if (posPayMethod === 'split' && !(splitCash > 0 && splitCash < posTotal)) {
+      alert('For a Cash + QR payment, enter the cash amount (more than 0 and less than the total). The rest is counted as QR.');
+      return;
+    }
+
+    // One checkout = one bill: same bill id and same time for every item
+    const now = new Date().toISOString();
+    const stamp = Date.now();
+    const billId = `BILL-${stamp}-${Math.random().toString(36).substr(2, 5)}`;
+    let cashLeft = posPayMethod === 'cash' ? posTotal : posPayMethod === 'qr' ? 0 : splitCash;
+
+    const sales: CounterSale[] = posCart.map((item, idx) => {
+      const itemTotal = round2(item.customPrice * item.quantity);
+      const isLast = idx === posCart.length - 1;
+      let cashShare = 0;
+      if (posPayMethod === 'cash') cashShare = itemTotal;
+      else if (posPayMethod === 'split') {
+        // Spread the cash amount across items so the parts always add up exactly
+        cashShare = isLast ? round2(cashLeft) : round2(itemTotal * splitCash / posTotal);
+        cashLeft -= cashShare;
       }
-      if (stockUpdates.length > 0) {
-        await SupabaseService.updateMany('products', stockUpdates);
-      }
-      if (onRefresh) await onRefresh();
+      return {
+        id: `SALE-${stamp}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+        productId: item.product.id,
+        productName: item.product.name,
+        price: item.customPrice,
+        quantity: item.quantity,
+        total: itemTotal,
+        createdAt: now,
+        billId,
+        paymentMethod: posPayMethod,
+        cashAmount: cashShare,
+        qrAmount: round2(itemTotal - cashShare)
+      };
+    });
+
+    setIsCheckingOut(true);
+    const result = await addCounterSales(sales);
+    setIsCheckingOut(false);
+
+    if (result === 'failed') {
+      alert('The sale could not be saved. Your cart is kept, please try again.');
+      return;
+    }
+    if (result === 'no-payment') {
+      alert('Sale saved, but the payment type could not be stored. Run the latest expenses_table.sql in Supabase.');
     }
     setPosCart([]);
+    setPosPayMethod('cash');
+    setPosCashInput('');
   };
 
-  // Sales Ledger Logic
-  const groupedSalesByDate = useMemo(() => {
-    const groups: Record<string, CounterSale[]> = {};
-    const sorted = [...counterSales].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    
-    sorted.forEach(sale => {
-      const dateKey = new Date(sale.createdAt).toLocaleDateString('en-GB', { 
-        day: 'numeric', 
-        month: 'long' 
-      });
+  // Sales Ledger Logic: every checkout is shown as ONE bill, bills are grouped by day
+  const billsByDate = useMemo(() => {
+    const bills: Record<string, Bill> = {};
+    counterSales.forEach(sale => {
+      // Older sales have no bill id, but all items of one checkout share the same second
+      const key = sale.billId || `t-${String(sale.createdAt).slice(0, 19)}`;
+      if (!bills[key]) bills[key] = { key, createdAt: sale.createdAt, items: [], total: 0, cash: 0, qr: 0 };
+      bills[key].items.push(sale);
+      bills[key].total += sale.total;
+      bills[key].cash += cashOf(sale);
+      bills[key].qr += qrOf(sale);
+    });
+
+    const sortedBills = Object.values(bills).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const groups: Record<string, Bill[]> = {};
+    sortedBills.forEach(bill => {
+      const dateKey = new Date(bill.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
       if (!groups[dateKey]) groups[dateKey] = [];
-      groups[dateKey].push(sale);
+      groups[dateKey].push(bill);
     });
     return groups;
   }, [counterSales]);
 
+  const deleteBill = (bill: Bill) => {
+    if (window.confirm(`Delete this bill (${bill.items.length} items, Rs. ${bill.total.toLocaleString()})?`)) {
+      deleteCounterSales(bill.items.map(i => i.id));
+    }
+  };
+
   const downloadSalesCSV = () => {
     const sorted = [...counterSales].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const headers = ['Transaction ID', 'Date', 'Product', 'Rate (Rs.)', 'Qty', 'Total (Rs.)'];
+    const headers = ['Bill', 'Transaction ID', 'Date', 'Product', 'Rate (Rs.)', 'Qty', 'Total (Rs.)', 'Payment', 'Cash (Rs.)', 'QR (Rs.)'];
     const rows = sorted.map(s => [
+      s.billId || '',
       s.id,
       new Date(s.createdAt).toLocaleString(),
-      s.productName,
+      `"${s.productName.replace(/"/g, '""')}"`,
       s.price,
       s.quantity,
-      s.total
+      s.total,
+      billMethod({ cash: cashOf(s), qr: qrOf(s) }),
+      cashOf(s),
+      qrOf(s)
     ]);
-    
+
     const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
@@ -209,28 +294,74 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Stats Calculations
-  const totalWholesale = orders.reduce((s, o) => s + o.total, 0);
-  const totalCounter = counterSales.reduce((s, c) => s + c.total, 0);
-  const totalRevenue = totalWholesale + totalCounter;
-  const totalStockValue = products.reduce((s, p) => s + (p.price * p.stock), 0);
-
-  // Today's Sales Calculation
+  // Today's Sales Calculation (also used by the Income / Expenses tab)
   const todaySales = useMemo(() => {
     const today = new Date().toLocaleDateString('en-GB');
     const counterToday = counterSales.filter(s => new Date(s.createdAt).toLocaleDateString('en-GB') === today);
     const ordersToday = orders.filter(o => new Date(o.createdAt).toLocaleDateString('en-GB') === today && o.status !== 'cancelled');
-    
+
     const counterTotal = counterToday.reduce((s, c) => s + c.total, 0);
     const ordersTotal = ordersToday.reduce((s, o) => s + o.total, 0);
-    
+
     return counterTotal + ordersTotal;
   }, [counterSales, orders]);
 
-  const chartData: { name: string; value: number; color: string }[] = [
-    { name: 'Wholesale', value: totalWholesale, color: '#dc2626' },
-    { name: 'Store POS', value: totalCounter, color: '#d97706' }
-  ];
+  // Analytics for the selected period
+  const analytics = useMemo(() => {
+    const days = range === 'today' ? 1 : range === '7d' ? 7 : 30;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - (days - 1));
+    const inRange = (iso: string) => new Date(iso).getTime() >= start.getTime();
+
+    const posRows = counterSales.filter(s => inRange(s.createdAt));
+    const b2bOrders = orders.filter(o => o.status !== 'cancelled' && inRange(o.createdAt));
+    const entries = expenses.filter(e => inRange(e.createdAt));
+
+    const pos = posRows.reduce((t, r) => t + r.total, 0);
+    const b2b = b2bOrders.reduce((t, o) => t + o.total, 0);
+    const income = entries.filter(e => e.type === 'income').reduce((t, e) => t + e.amount, 0);
+    const expense = entries.filter(e => e.type !== 'income').reduce((t, e) => t + e.amount, 0);
+    const cash = posRows.reduce((t, r) => t + cashOf(r), 0);
+    const qr = posRows.reduce((t, r) => t + qrOf(r), 0);
+
+    // Day-by-day chart (always at least the last 7 days)
+    const chartDays = range === '30d' ? 30 : 7;
+    const trend: { key: string; name: string; Sales: number; Expenses: number }[] = [];
+    for (let i = chartDays - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - i);
+      trend.push({ key: dayKey(d), name: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), Sales: 0, Expenses: 0 });
+    }
+    const slot = (iso: string) => trend.find(t => t.key === dayKey(iso));
+    counterSales.forEach(s => { const t = slot(s.createdAt); if (t) t.Sales += s.total; });
+    orders.forEach(o => { if (o.status !== 'cancelled') { const t = slot(o.createdAt); if (t) t.Sales += o.total; } });
+    expenses.forEach(e => { if (e.type !== 'income') { const t = slot(e.createdAt); if (t) t.Expenses += e.amount; } });
+
+    // Best sellers in the period (store + B2B)
+    const sellers: Record<string, { name: string; qty: number; revenue: number }> = {};
+    const addSeller = (id: string, name: string, qty: number, revenue: number) => {
+      if (!sellers[id]) sellers[id] = { name, qty: 0, revenue: 0 };
+      sellers[id].qty += qty;
+      sellers[id].revenue += revenue;
+    };
+    posRows.forEach(r => addSeller(r.productId, r.productName, r.quantity, r.total));
+    b2bOrders.forEach(o => o.items.forEach(i => addSeller(i.productId, i.name, i.quantity, i.price * i.quantity)));
+    const topSellers = Object.values(sellers).sort((a, b) => b.qty - a.qty).slice(0, 5);
+
+    const label = range === 'today'
+      ? new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+      : `Last ${days} days`;
+
+    return { pos, b2b, sales: pos + b2b, income, expense, net: pos + b2b + income - expense, cash, qr, trend, topSellers, label };
+  }, [range, counterSales, orders, expenses]);
+
+  const pendingOrders = orders.filter(o => o.status === 'pending');
+  const pendingOrdersValue = pendingOrders.reduce((t, o) => t + o.total, 0);
+  const lowStockProducts = products
+    .filter(p => p.stock <= LOW_STOCK_LIMIT)
+    .sort((a, b) => a.stock - b.stock);
 
   const pendingUsers = users.filter(u => u.role === 'customer' && (!u.status || u.status.toLowerCase() === 'pending'));
   const verifiedUsers = users.filter(u => u.role === 'customer' && u.status === 'approved');
@@ -345,7 +476,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             { id: 'stats', label: 'Analytics', icon: TrendingUp },
             { id: 'orders', label: 'B2B Orders', icon: ClipboardList },
             { id: 'counter', label: 'POS Terminal', icon: ShoppingCart },
-            { id: 'expenses', label: 'Expenses', icon: Wallet },
+            { id: 'expenses', label: 'Income/Expenses', icon: Wallet },
             { id: 'ledger', label: 'History', icon: CalendarDays },
             { id: 'users', label: 'Merchants', icon: Users },
             { id: 'inventory', label: 'Vault', icon: Package }
@@ -360,14 +491,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* Analytics View */}
       {activeTab === 'stats' && (
-        <div className="space-y-12 animate-in fade-in duration-700">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        <div className="space-y-10 animate-in fade-in duration-700">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-3xl font-black dark:text-white uppercase tracking-tighter">Business Snapshot</h2>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{analytics.label}</p>
+            </div>
+            <div className="flex gap-1 p-1.5 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl w-fit">
+              {([
+                { id: 'today', label: 'Today' },
+                { id: '7d', label: '7 Days' },
+                { id: '30d', label: '30 Days' }
+              ] as const).map(r => (
+                <button
+                  key={r.id}
+                  onClick={() => setRange(r.id)}
+                  className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${range === r.id ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-red-500'}`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Money in / out */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { label: 'Today\'s Sales', value: `Rs. ${todaySales.toLocaleString()}`, icon: Activity, color: 'text-red-500' },
-              { label: 'Total Sales', value: `Rs. ${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-500' },
-              { label: 'Merchant Network', value: users.length, icon: Users, color: 'text-blue-500' },
-              { label: 'Inventory Value', value: `Rs. ${totalStockValue.toLocaleString()}`, icon: Package, color: 'text-red-500' },
-              { label: 'Units in Stock', value: products.reduce((s, p) => s + p.stock, 0), icon: LayoutGrid, color: 'text-orange-500' }
+              { label: 'Sales', value: `Rs. ${analytics.sales.toLocaleString()}`, sub: `Store Rs. ${analytics.pos.toLocaleString()} • B2B Rs. ${analytics.b2b.toLocaleString()}`, icon: Activity, color: 'text-red-500', valueColor: 'dark:text-white' },
+              { label: 'Other Income', value: `Rs. ${analytics.income.toLocaleString()}`, sub: 'Money in, not from sales', icon: Wallet, color: 'text-emerald-500', valueColor: 'text-emerald-500' },
+              { label: 'Expenses', value: `Rs. ${analytics.expense.toLocaleString()}`, sub: 'Money spent', icon: TrendingDown, color: 'text-orange-500', valueColor: 'text-red-600' },
+              { label: 'Net Balance', value: `Rs. ${analytics.net.toLocaleString()}`, sub: 'Sales + Income - Expenses', icon: TrendingUp, color: analytics.net >= 0 ? 'text-emerald-500' : 'text-red-500', valueColor: analytics.net >= 0 ? 'text-emerald-500' : 'text-red-600' }
             ].map((stat, i) => (
               <div key={i} className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-100 dark:border-white/5 shadow-xl space-y-4">
                 <div className={`p-3 w-fit rounded-xl bg-slate-50 dark:bg-slate-800 ${stat.color}`}>
@@ -375,44 +528,153 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{stat.label}</p>
-                  <p className="text-2xl font-black dark:text-white tracking-tighter">{stat.value}</p>
+                  <p className={`text-2xl font-black tracking-tighter ${stat.valueColor}`}>{stat.value}</p>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1">{stat.sub}</p>
                 </div>
               </div>
             ))}
           </div>
 
+          {/* Trend + payment split */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
             <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl space-y-8">
-              <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter">Market Performance</h3>
+              <div>
+                <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter">Sales vs Expenses</h3>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Day by day • last {analytics.trend.length} days</p>
+              </div>
               <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
+                  <BarChart data={analytics.trend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                    <XAxis dataKey="name" stroke="#64748b" fontSize={10} fontWeight="bold" axisLine={false} tickLine={false} />
-                    <YAxis stroke="#64748b" fontSize={10} fontWeight="bold" axisLine={false} tickLine={false} tickFormatter={(v) => `Rs.${v/1000}k`} />
-                    <Tooltip 
-                      cursor={{fill: '#f1f5f9'}}
+                    <XAxis dataKey="name" stroke="#64748b" fontSize={10} fontWeight="bold" axisLine={false} tickLine={false} interval={analytics.trend.length > 10 ? 3 : 0} />
+                    <YAxis stroke="#64748b" fontSize={10} fontWeight="bold" axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${v / 1000}k` : `${v}`} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(148,163,184,0.1)' }}
                       contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '16px', color: '#fff' }}
+                      formatter={(v: number) => `Rs. ${v.toLocaleString()}`}
                     />
-                    <Bar dataKey="value" radius={[10, 10, 0, 0]}>
-                      {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Bar>
+                    <Legend wrapperStyle={{ fontSize: 10, fontWeight: 'bold' }} />
+                    <Bar dataKey="Sales" fill="#dc2626" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="Expenses" fill="#d97706" radius={[8, 8, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            <div className="bg-red-600 p-10 rounded-[3rem] shadow-2xl flex flex-col justify-between">
-              <div className="space-y-2">
-                <Flame className="w-12 h-12 text-white/50 mb-6" />
-                <h3 className="text-3xl font-black text-white leading-tight tracking-tighter uppercase">Channel Mix</h3>
-                <p className="text-red-200 text-xs font-bold leading-relaxed">Direct counter sales account for {((totalCounter / (totalRevenue || 1)) * 100).toFixed(1)}% of your revenue.</p>
+            <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl space-y-8">
+              <div>
+                <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter">Store Payments</h3>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">POS sales only</p>
               </div>
-              <button onClick={() => setActiveTab('orders')} className="mt-8 bg-white text-red-600 font-black px-6 py-4 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-2">
-                Manage B2B Orders <ArrowUpRight className="w-4 h-4" />
-              </button>
+              {(analytics.cash + analytics.qr) > 0 ? (
+                <div className="space-y-6">
+                  <div className="h-4 w-full rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800 flex">
+                    <div className="bg-emerald-500 h-full" style={{ width: `${(analytics.cash / (analytics.cash + analytics.qr)) * 100}%` }} />
+                    <div className="bg-blue-500 h-full" style={{ width: `${(analytics.qr / (analytics.cash + analytics.qr)) * 100}%` }} />
+                  </div>
+                  {[
+                    { label: 'Cash', amount: analytics.cash, dot: 'bg-emerald-500', icon: Banknote },
+                    { label: 'QR', amount: analytics.qr, dot: 'bg-blue-500', icon: QrCode }
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-3 h-3 rounded-full ${row.dot}`} />
+                        <row.icon className="w-4 h-4 text-slate-400" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{row.label}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-black dark:text-white tracking-tighter">Rs. {row.amount.toLocaleString()}</p>
+                        <p className="text-[10px] font-bold text-slate-400">{((row.amount / (analytics.cash + analytics.qr)) * 100).toFixed(0)}%</p>
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-[10px] font-bold text-slate-400 leading-relaxed">Sales made before payment types were added are counted as cash.</p>
+                </div>
+              ) : (
+                <div className="py-12 flex flex-col items-center opacity-30">
+                  <ShoppingCart className="w-12 h-12 mb-3" />
+                  <p className="text-[10px] font-black uppercase tracking-widest">No store sales yet</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* What needs doing + what sells */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+            <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl space-y-6">
+              <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter flex items-center gap-3">
+                <Clock className="w-5 h-5 text-red-500" /> Needs Attention
+              </h3>
+              <div className="space-y-3">
+                <button onClick={() => { setOrderFilter('pending'); setActiveTab('orders'); }} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-800/50 rounded-3xl hover:ring-2 hover:ring-red-500/30 transition-all text-left">
+                  <div>
+                    <p className="font-black dark:text-white text-sm">Pending B2B orders</p>
+                    <p className="text-[10px] font-bold text-slate-500">Rs. {pendingOrdersValue.toLocaleString()} waiting</p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-black ${pendingOrders.length > 0 ? 'bg-yellow-500/10 text-yellow-500' : 'bg-slate-200 dark:bg-slate-700 text-slate-400'}`}>{pendingOrders.length}</span>
+                </button>
+                <button onClick={() => setActiveTab('users')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-800/50 rounded-3xl hover:ring-2 hover:ring-red-500/30 transition-all text-left">
+                  <div>
+                    <p className="font-black dark:text-white text-sm">Merchants to approve</p>
+                    <p className="text-[10px] font-bold text-slate-500">{verifiedUsers.length} approved so far</p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-black ${pendingUsers.length > 0 ? 'bg-blue-500/10 text-blue-500' : 'bg-slate-200 dark:bg-slate-700 text-slate-400'}`}>{pendingUsers.length}</span>
+                </button>
+                <button onClick={() => setActiveTab('inventory')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-800/50 rounded-3xl hover:ring-2 hover:ring-red-500/30 transition-all text-left">
+                  <div>
+                    <p className="font-black dark:text-white text-sm">Low or out of stock</p>
+                    <p className="text-[10px] font-bold text-slate-500">{LOW_STOCK_LIMIT} units or fewer</p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-black ${lowStockProducts.length > 0 ? 'bg-red-500/10 text-red-500' : 'bg-slate-200 dark:bg-slate-700 text-slate-400'}`}>{lowStockProducts.length}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl space-y-6">
+              <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-orange-500" /> Restock Soon
+              </h3>
+              <div className="space-y-3">
+                {lowStockProducts.slice(0, 6).map(p => (
+                  <div key={p.id} className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="font-black dark:text-white text-sm truncate">{p.name}</p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">{p.volume}</p>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${p.stock === 0 ? 'bg-red-500/10 text-red-500' : 'bg-orange-500/10 text-orange-500'}`}>
+                      {p.stock === 0 ? 'Out' : `${p.stock} left`}
+                    </span>
+                  </div>
+                ))}
+                {lowStockProducts.length === 0 && (
+                  <p className="text-sm font-bold text-slate-400 py-6 text-center">All products are well stocked.</p>
+                )}
+                {lowStockProducts.length > 6 && (
+                  <button onClick={() => setActiveTab('inventory')} className="text-[10px] font-black uppercase tracking-widest text-red-500 flex items-center gap-1">
+                    See all {lowStockProducts.length} <ArrowUpRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-white/5 shadow-2xl space-y-6">
+              <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter flex items-center gap-3">
+                <Trophy className="w-5 h-5 text-yellow-500" /> Top Sellers
+              </h3>
+              <div className="space-y-4">
+                {analytics.topSellers.map((t, i) => (
+                  <div key={t.name + i} className="flex items-center gap-4">
+                    <span className="w-8 h-8 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-black text-slate-500">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-black dark:text-white text-sm truncate">{t.name}</p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">{t.qty} sold • Rs. {t.revenue.toLocaleString()}</p>
+                    </div>
+                  </div>
+                ))}
+                {analytics.topSellers.length === 0 && (
+                  <p className="text-sm font-bold text-slate-400 py-6 text-center">No sales in this period.</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -637,58 +899,68 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="space-y-12">
-            {(Object.entries(groupedSalesByDate) as [string, CounterSale[]][]).map(([dateLabel, sales]) => (
+            {(Object.entries(billsByDate) as [string, Bill[]][]).map(([dateLabel, bills]) => (
               <div key={dateLabel} className="space-y-6">
-                <div className="flex items-center gap-6">
+                <div className="flex flex-wrap items-center gap-6">
                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.4em] whitespace-nowrap">
                     {dateLabel}
                   </h3>
-                  <div className="h-px w-full bg-slate-200 dark:bg-white/5" />
-                  <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Daily Total:</span>
-                    <span className="text-sm font-black text-red-600">Rs. {sales.reduce((s, c) => s + c.total, 0).toLocaleString()}</span>
+                  <div className="h-px flex-1 min-w-[40px] bg-slate-200 dark:bg-white/5" />
+                  <div className="flex items-center gap-4 whitespace-nowrap text-[10px] font-black uppercase tracking-widest">
+                    <span className="text-emerald-500">Cash Rs. {bills.reduce((t, b) => t + b.cash, 0).toLocaleString()}</span>
+                    <span className="text-blue-500">QR Rs. {bills.reduce((t, b) => t + b.qr, 0).toLocaleString()}</span>
+                    <span className="text-slate-400">Daily Total:</span>
+                    <span className="text-sm text-red-600">Rs. {bills.reduce((t, b) => t + b.total, 0).toLocaleString()}</span>
                   </div>
                 </div>
-                
-                <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-white/5 shadow-2xl overflow-hidden">
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-50 dark:bg-slate-950/50">
-                      <tr className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">
-                        <th className="px-10 py-6">Item Name</th>
-                        <th className="px-10 py-6">Rate (Rs.)</th>
-                        <th className="px-10 py-6 text-center">Qty</th>
-                        <th className="px-10 py-6 text-right">Total</th>
-                        <th className="px-10 py-6 text-right">Delete</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y dark:divide-white/5">
-                      {sales.map(sale => (
-                        <tr key={sale.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-all">
-                          <td className="px-10 py-6">
-                            <p className="font-black dark:text-white text-lg tracking-tight">{sale.productName}</p>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase">ID: {sale.id.split('-').pop()}</p>
-                          </td>
-                          <td className="px-10 py-6 font-bold dark:text-slate-400">
-                            {sale.price.toLocaleString()}
-                          </td>
-                          <td className="px-10 py-6 text-center">
-                            <span className="font-black dark:text-white px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg">x{sale.quantity}</span>
-                          </td>
-                          <td className="px-10 py-6 text-right font-black text-red-600 text-xl tracking-tighter">
-                            Rs. {sale.total.toLocaleString()}
-                          </td>
-                          <td className="px-10 py-6 text-right">
-                            <button 
-                              onClick={() => deleteCounterSale(sale.id)}
-                              className="p-3 text-slate-300 hover:text-red-500 transition-colors"
-                            >
+
+                <div className="space-y-6">
+                  {bills.map((bill, idx) => {
+                    const method = billMethod(bill);
+                    return (
+                      <div key={bill.key} className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-white/5 shadow-2xl overflow-hidden">
+                        <div className="flex flex-wrap items-center justify-between gap-4 px-8 py-5 bg-slate-50 dark:bg-slate-950/50">
+                          <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-red-600/10 text-red-500 rounded-xl"><Receipt className="w-5 h-5" /></div>
+                            <div>
+                              <p className="font-black dark:text-white tracking-tight">Bill {bills.length - idx}</p>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                                {new Date(bill.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} • {bill.items.length} {bill.items.length === 1 ? 'item' : 'items'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            {(method === 'cash' || method === 'split') && (
+                              <span className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-500 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                <Banknote className="w-3.5 h-3.5" /> Cash{method === 'split' ? ` Rs. ${bill.cash.toLocaleString()}` : ''}
+                              </span>
+                            )}
+                            {(method === 'qr' || method === 'split') && (
+                              <span className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 text-blue-500 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                <QrCode className="w-3.5 h-3.5" /> QR{method === 'split' ? ` Rs. ${bill.qr.toLocaleString()}` : ''}
+                              </span>
+                            )}
+                            <p className="font-black text-red-600 text-2xl tracking-tighter">Rs. {bill.total.toLocaleString()}</p>
+                            <button onClick={() => deleteBill(bill)} className="p-2 text-slate-300 hover:text-red-500 transition-colors" title="Delete bill">
                               <Trash2 className="w-5 h-5" />
                             </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          </div>
+                        </div>
+                        <div className="divide-y dark:divide-white/5">
+                          {bill.items.map(item => (
+                            <div key={item.id} className="grid grid-cols-12 gap-2 items-center px-8 py-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-all">
+                              <p className="col-span-12 sm:col-span-5 font-black dark:text-white tracking-tight">{item.productName}</p>
+                              <p className="col-span-4 sm:col-span-2 sm:text-right font-bold text-slate-500 text-sm">Rs. {item.price.toLocaleString()}</p>
+                              <p className="col-span-3 sm:col-span-2 text-center">
+                                <span className="font-black dark:text-white px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-sm">x{item.quantity}</span>
+                              </p>
+                              <p className="col-span-5 sm:col-span-3 text-right font-black dark:text-white tracking-tighter">Rs. {item.total.toLocaleString()}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
@@ -779,20 +1051,65 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 )}
              </div>
 
-             <div className="pt-8 border-t dark:border-white/5 flex flex-col md:flex-row items-center justify-between gap-8">
-                <div>
-                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Payable</p>
-                   <p className="text-5xl font-black text-red-600 tracking-tighter">
-                     Rs. {posCart.reduce((s, i) => s + (i.customPrice * i.quantity), 0).toLocaleString()}
-                   </p>
+             <div className="pt-8 border-t dark:border-white/5 space-y-8">
+                <div className="space-y-4">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Payment Method</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {([
+                      { id: 'cash', label: 'Cash', icon: Banknote },
+                      { id: 'qr', label: 'QR', icon: QrCode },
+                      { id: 'split', label: 'Cash + QR', icon: ArrowLeftRight }
+                    ] as const).map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setPosPayMethod(m.id)}
+                        className={`flex items-center justify-center gap-2 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${posPayMethod === m.id ? 'bg-red-600 text-white shadow-lg' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-red-500'}`}
+                      >
+                        <m.icon className="w-4 h-4" /> {m.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {posPayMethod === 'split' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest ml-1">Paid in Cash (Rs.)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={posCashInput}
+                          onChange={e => setPosCashInput(e.target.value)}
+                          placeholder="0"
+                          className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl py-4 px-6 font-black dark:text-white text-sm focus:ring-4 focus:ring-red-500/10"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest ml-1">Paid by QR (Rs.)</label>
+                        <div className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl py-4 px-6 font-black dark:text-white text-sm">
+                          {splitQr.toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <button 
-                  onClick={processPOSCheckout}
-                  disabled={posCart.length === 0}
-                  className="w-full md:w-auto px-12 py-5 bg-red-600 text-white font-black rounded-[2rem] shadow-xl hover:scale-105 active:scale-95 transition-all text-xs uppercase tracking-[0.2em] disabled:opacity-50"
-                >
-                  Confirm Sale
-                </button>
+
+                <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                  <div>
+                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Payable</p>
+                     <p className="text-5xl font-black text-red-600 tracking-tighter">
+                       Rs. {posTotal.toLocaleString()}
+                     </p>
+                  </div>
+                  <button 
+                    onClick={processPOSCheckout}
+                    disabled={posCart.length === 0 || isCheckingOut}
+                    className="w-full md:w-auto px-12 py-5 bg-red-600 text-white font-black rounded-[2rem] shadow-xl hover:scale-105 active:scale-95 transition-all text-xs uppercase tracking-[0.2em] disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isCheckingOut && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Confirm Sale
+                  </button>
+                </div>
              </div>
           </div>
         </div>
