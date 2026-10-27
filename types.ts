@@ -1,4 +1,3 @@
-
 export type UserRole = 'admin' | 'customer';
 export type UserStatus = 'pending' | 'approved';
 
@@ -46,6 +45,8 @@ export interface Order {
   createdAt: string;
 }
 
+export type PaymentMethod = 'cash' | 'qr' | 'split';
+
 export interface CounterSale {
   id: string;
   productId: string;
@@ -54,9 +55,23 @@ export interface CounterSale {
   quantity: number;
   total: number;
   createdAt: string;
+  // One checkout = one bill. Older sales (before this update) have none of these.
+  billId?: string;
+  paymentMethod?: PaymentMethod;
+  cashAmount?: number; // this item's share paid in cash
+  qrAmount?: number;   // this item's share paid by QR
 }
 
 export interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
+}
+
+// One line in the Income / Expenses book. Older entries have no type = expense.
+export interface Expense {
+  id: string;
+  name: string;
+  amount: number;
+  type?: 'income' | 'expense';
+  createdAt: string;
 }
